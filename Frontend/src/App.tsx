@@ -1,6 +1,6 @@
 //import Title from "@Components/atomos/Titel.tsx";
 
-import Baner from "./Components/moleculas/bard/baner"
+import Baner from "./Components/moleculas/bard/Baner"
 
 
 
