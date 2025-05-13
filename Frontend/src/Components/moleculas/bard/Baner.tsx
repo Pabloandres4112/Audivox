@@ -1,8 +1,9 @@
 //import { ColorPalette } from "../../atomos/Colors/colro";
-import { HeartIcon } from "../../atomos/Icon/corazon";
-import IconThem from "../../atomos/Icon/IconThem";
-import PlayerCard from "../../atomos/ModelCard/PlayerCard";
-import { Text } from "../../atomos/Tittle/Text";
+import { HeartIcon } from "@Components/atomos/index.ts";
+import {IconThem} from "@Components/atomos/index.ts";
+//import { ColorPalette } from "../../atomos/Colors/colro";
+//import PlayerCard from "../../atomos/ModelCard/PlayerCard";
+import { Text } from "@Components/atomos/index.ts";
 //import { Title } from "../../atomos/Tittle/Titel";
 
 
@@ -10,7 +11,7 @@ export default function Baner() {
     return (
 
         <>
-            <PlayerCard>
+            
                 <div className="flex items-center justify-between border-b border-white/10 pb-2">
                     
                     <div className="flex gap-4 items-center">
@@ -35,7 +36,7 @@ export default function Baner() {
                         <IconThem />
                     </div>
                 </div>
-            </PlayerCard>
+           
         </>
 
     )
