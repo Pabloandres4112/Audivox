@@ -4,6 +4,7 @@ import CardMusig from "@Components/moleculas/card/CardMusig"
 
 //import Baner from "./Components/moleculas/bard/Baner"
 import MusicPlayer from "@Components/organismos"
+import ControlMusic from "@Components/organismos/controlMusic"
 
 
 
@@ -17,6 +18,7 @@ function App() {
       {/* <h2>Holas</h2> */}
       {/* <MusicPlayer  /> */}
       <CardMusig />
+      {/* <ControlMusic /> */}
     </>
   )
 }
