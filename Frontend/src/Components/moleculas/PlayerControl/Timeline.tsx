@@ -1,7 +1,8 @@
 type TimelineProps = {
   currentTime: number;
   duration: number;
-  onSeek: (time: number) => void;
+  onSeekChange: (time: number) => void;
+  onSeekCommit: (time: number) => void;
 };
 
 const formatTime = (time: number) => {
@@ -10,7 +11,7 @@ const formatTime = (time: number) => {
   return `${minutes}:${seconds}`;
 };
 
-const Timeline = ({ currentTime, duration, onSeek }: TimelineProps) => (
+const Timeline = ({ currentTime, duration, onSeekChange, onSeekCommit }: TimelineProps) => (
   <div className="w-full">
     <input
       type="range"
@@ -18,7 +19,9 @@ const Timeline = ({ currentTime, duration, onSeek }: TimelineProps) => (
       max={duration}
       step="0.01"
       value={currentTime}
-      onChange={(e) => onSeek(parseFloat(e.target.value))}
+      onChange={(e) => onSeekChange(parseFloat(e.target.value))}
+      onMouseUp={(e) => onSeekCommit(parseFloat(e.currentTarget.value))}
+      onTouchEnd={(e) => onSeekCommit(parseFloat(e.currentTarget.value))}
       className="w-full accent-purple-500"
     />
     <div className="flex justify-between text-sm text-gray-400">

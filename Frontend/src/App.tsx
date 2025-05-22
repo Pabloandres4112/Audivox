@@ -3,8 +3,8 @@
 import CardMusig from "@Components/moleculas/card/CardMusig"
 
 //import Baner from "./Components/moleculas/bard/Baner"
-import MusicPlayer from "@Components/organismos"
-import ControlMusic from "@Components/organismos/controlMusic"
+// import MusicPlayer from "@Components/organismos"
+// import ControlMusic from "@Components/organismos/controlMusic"
 
 
 
