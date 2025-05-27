@@ -9,16 +9,26 @@ import CardMusig from "@Components/moleculas/card/CardMusig"
 
 
 
+// import React, { useEffect } from 'react';
+// import { BrowserRouter } from 'react-router-dom';
+// import AppRoutes from './routes.ts';
+
+
+
+
 
 
 function App() {
 
   return (
+    // <BrowserRouter >
+    // <AppRoutes />
+    // </BrowserRouter>
+
     <>
-      {/* <h2>Holas</h2> */}
-      {/* <MusicPlayer  /> */}
+
       <CardMusig />
-      {/* <ControlMusic /> */}
+
     </>
   )
 }

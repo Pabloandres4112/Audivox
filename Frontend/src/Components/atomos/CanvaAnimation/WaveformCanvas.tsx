@@ -1,17 +1,17 @@
-// WaveformCanvas.tsx
 import { useEffect, useRef } from "react";
 
 interface WaveformCanvasProps {
-  analyser: AnalyserNode | null;
+  analyser: AnalyserNode;
 }
 
-const WaveformCanvas = ({ analyser }: WaveformCanvasProps) => {
+const WaveformCanvas: React.FC<WaveformCanvasProps> = ({ analyser }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationIdRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!analyser || !canvasRef.current) return;
-
     const canvas = canvasRef.current;
+    if (!canvas || !analyser) return;
+
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -20,8 +20,9 @@ const WaveformCanvas = ({ analyser }: WaveformCanvasProps) => {
     const dataArray = new Uint8Array(bufferLength);
 
     const draw = () => {
-      requestAnimationFrame(draw);
+      animationIdRef.current = requestAnimationFrame(draw);
       analyser.getByteFrequencyData(dataArray);
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const barWidth = canvas.width / bufferLength;
@@ -31,14 +32,15 @@ const WaveformCanvas = ({ analyser }: WaveformCanvasProps) => {
         const value = dataArray[i];
         const height = value * 0.75;
         const x = i * barWidth;
-        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        gradient.addColorStop(0, "#8b5cf6");
-        gradient.addColorStop(1, "#3b82f6");
-        ctx.fillStyle = gradient;
 
         const radius = barWidth / 2;
         const y = centerY - height / 2;
         const roundedHeight = height > radius * 2 ? height - radius * 2 : 0;
+
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, "#8b5cf6"); // violet-500
+        gradient.addColorStop(1, "#3b82f6"); // blue-500
+        ctx.fillStyle = gradient;
 
         ctx.beginPath();
         ctx.moveTo(x + radius, y);
@@ -55,6 +57,12 @@ const WaveformCanvas = ({ analyser }: WaveformCanvasProps) => {
     };
 
     draw();
+
+    return () => {
+      if (animationIdRef.current) {
+        cancelAnimationFrame(animationIdRef.current);
+      }
+    };
   }, [analyser]);
 
   return (
@@ -62,7 +70,7 @@ const WaveformCanvas = ({ analyser }: WaveformCanvasProps) => {
       ref={canvasRef}
       width={500}
       height={100}
-      className="w-full mb-4 rounded-xl bg-gray-800"
+      className="w-full mb-4 rounded-xl bg-gray-800 dark:bg-gray-700"
     />
   );
 };

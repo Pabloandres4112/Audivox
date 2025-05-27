@@ -1,39 +1,55 @@
-import WaveformCanvas from "@Components/atomos/CanvaAnimation/WaveformCanvas";
+import { useRef, useState } from "react";
 import PlayerControls from "@Components/moleculas/PlayerControl/PlayerControls";
 import Timeline from "@Components/moleculas/PlayerControl/Timeline";
 import VolumeControl from "@Components/moleculas/PlayerControl/VolumeControl";
-import { useRef, useState } from "react";
-import LowPerformeCanva from "../../hook/LowPerformeCanva.tsx";
 
-const ControlMusic = () => {
+interface ControlMusicProps {
+  setAnalyser: (node: AnalyserNode) => void;
+  setAudioContext: (ctx: AudioContext) => void;
+  analyser: AnalyserNode | null;
+  audioContext: AudioContext | null;
+}
 
-  const isLowPerformance = LowPerformeCanva();
-
+const ControlMusic: React.FC<ControlMusicProps> = ({
+  setAnalyser,
+  setAudioContext,
+  audioContext,
+}) => {
   const audioRef = useRef<HTMLAudioElement>(null);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [volume, setVolume] = useState(1);
-  const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
-  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
-  const [isSeeking, setIsSeeking] = useState(false);
   const [seekValue, setSeekValue] = useState(0);
+  const [isSeeking, setIsSeeking] = useState(false);
+
+  const initializeAudioContext = () => {
+    const audio = audioRef.current;
+    if (!audio || audioContext) return;
+
+    const context = new AudioContext();
+    const source = context.createMediaElementSource(audio);
+    const analyserNode = context.createAnalyser();
+
+    source.connect(analyserNode);
+    analyserNode.connect(context.destination);
+
+    setAudioContext(context);
+    setAnalyser(analyserNode);
+  };
 
   const handlePlayPause = () => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    if (!audioContext) {
-      const context = new AudioContext();
-      const source = context.createMediaElementSource(audio);
-      const analyserNode = context.createAnalyser();
-      source.connect(analyserNode);
-      analyserNode.connect(context.destination);
-      setAudioContext(context);
-      setAnalyser(analyserNode);
-    }
+    if (!audioContext) initializeAudioContext();
 
-    isPlaying ? audio.pause() : audio.play();
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play();
+    }
     setIsPlaying(!isPlaying);
   };
 
@@ -46,7 +62,9 @@ const ControlMusic = () => {
 
   const handleLoadedMetadata = () => {
     const audio = audioRef.current;
-    if (audio) setDuration(audio.duration);
+    if (audio) {
+      setDuration(audio.duration);
+    }
   };
 
   const handleSeekChange = (value: number) => {
@@ -58,29 +76,32 @@ const ControlMusic = () => {
     const audio = audioRef.current;
     if (audio) {
       audio.currentTime = value;
-      audio.play(); // retomar reproducción
+      audio.play();
       setCurrentTime(value);
+      setIsPlaying(true);
     }
     setIsSeeking(false);
   };
 
   const handleVolumeChange = (value: number) => {
     setVolume(value);
-    if (audioRef.current) audioRef.current.volume = value;
+    if (audioRef.current) {
+      audioRef.current.volume = value;
+    }
   };
 
   const handleForward = () => {
     const audio = audioRef.current;
-    if (audio) audio.currentTime += 10;
+    if (audio) audio.currentTime = Math.min(audio.currentTime + 10, duration);
   };
 
   const handleRewind = () => {
     const audio = audioRef.current;
-    if (audio) audio.currentTime -= 10;
+    if (audio) audio.currentTime = Math.max(audio.currentTime - 10, 0);
   };
 
   return (
-    <div className="w-full p-4 text-white rounded-2xl shadow-lg flex flex-col items-center md:items-start text-center md:text-left">
+    <div className="w-full bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-6 rounded-2xl shadow-xl space-y-4 text-white">
       <audio
         ref={audioRef}
         src="/music/GustarmeTanto.mp3"
@@ -88,28 +109,23 @@ const ControlMusic = () => {
         onLoadedMetadata={handleLoadedMetadata}
       />
 
-      {!isLowPerformance ? (
-        <WaveformCanvas analyser={analyser} />
-      ) : (
-        <div className="w-full h-24 bg-gray-800 rounded-xl mb-4"></div>
-      )}
+      {/* Timeline */}
+      <Timeline
+        currentTime={isSeeking ? seekValue : currentTime}
+        duration={duration}
+        onSeekChange={handleSeekChange}
+        onSeekCommit={handleSeekCommit}
+      />
 
-      <div className="w-full">
-        <Timeline
-          currentTime={isSeeking ? seekValue : currentTime}
-          duration={duration}
-          onSeekChange={handleSeekChange}
-          onSeekCommit={handleSeekCommit}
-        />
-      </div>
-
-      <div className="flex flex-col md:flex-row items-center justify-center md:justify-start w-full mt-4 gap-4">
+      {/* Controls and Volume */}
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4">
         <PlayerControls
           isPlaying={isPlaying}
           onPlayPause={handlePlayPause}
           onForward={handleForward}
           onRewind={handleRewind}
         />
+
         <VolumeControl volume={volume} onChange={handleVolumeChange} />
       </div>
     </div>

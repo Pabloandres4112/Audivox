@@ -1,36 +1,36 @@
-import React, { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from "react";
 
-export default function LowPerformeCanva() {
-    const frameRef = useRef(0);
-    const startTimeRef = useRef(performance.now());
-    const [isLowPerformance, setIsLowPerformance] = useState(false);
+export default function useLowPerformance() {
+  const [isLowPerformance, setIsLowPerformance] = useState<boolean | null>(null);
+  const frameRef = useRef(0);
+  const startTimeRef = useRef(performance.now());
 
-    useEffect(() => {
-        const interval = () => {
-            frameRef.current++;
-            const now = performance.now();
-            const elapsed = now - startTimeRef.current;
-            if (elapsed >= 1000) {
-                if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2) {
-                    setIsLowPerformance(true);
-                }
-                const fps = frameRef.current / (elapsed / 1000);
-                if (fps < 40) {
-                    setIsLowPerformance(true);
-                }
-                frameRef.current = 0;
-                startTimeRef.current = now;
-            }
-            requestAnimationFrame(interval);
-        };
-        requestAnimationFrame(interval);
-        return () => {
-            setIsLowPerformance(false);
-        }
-    }, []);
+  useEffect(() => {
+    let animationFrameId: number;
 
-    return (
-        <div>{isLowPerformance ? 'Baja performance' : 'Alta performance'}</div>
-    )
+    const checkPerformance = () => {
+      frameRef.current++;
+      const now = performance.now();
+      const elapsed = now - startTimeRef.current;
+
+      if (elapsed >= 1000) {
+        const fps = frameRef.current / (elapsed / 1000);
+        const isLow = fps < 40 || (navigator.hardwareConcurrency !== undefined && navigator.hardwareConcurrency <= 2);
+        setIsLowPerformance(isLow);
+
+        frameRef.current = 0;
+        startTimeRef.current = now;
+        return;
+      }
+
+      animationFrameId = requestAnimationFrame(checkPerformance);
+    };
+
+    animationFrameId = requestAnimationFrame(checkPerformance);
+
+    return () => cancelAnimationFrame(animationFrameId);
+  }, []);
+
+  return isLowPerformance;
 }
 
