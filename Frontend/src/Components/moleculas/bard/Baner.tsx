@@ -1,10 +1,6 @@
 //import { ColorPalette } from "../../atomos/Colors/colro";
-import { HeartIcon } from "@Components/atomos/index.ts";
-import {IconThem} from "@Components/atomos/index.ts";
-//import { ColorPalette } from "../../atomos/Colors/colro";
-//import PlayerCard from "../../atomos/ModelCard/PlayerCard";
-import { Text } from "@Components/atomos/index.ts";
-//import { Title } from "../../atomos/Tittle/Titel";
+import { HeartIcon, IconThem, Text, } from "@Components/atomos/index.ts";
+
 
 
 export default function Baner() {

@@ -1,7 +1,5 @@
 import { useRef, useState } from "react";
-import PlayerControls from "@Components/moleculas/PlayerControl/PlayerControls";
-import Timeline from "@Components/moleculas/PlayerControl/Timeline";
-import VolumeControl from "@Components/moleculas/PlayerControl/VolumeControl";
+import {Timeline,VolumeControl, PlayerControls} from "@Components/moleculas/index.ts";
 
 interface ControlMusicProps {
   setAnalyser: (node: AnalyserNode) => void;

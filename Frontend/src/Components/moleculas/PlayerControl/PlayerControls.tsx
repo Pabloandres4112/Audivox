@@ -1,7 +1,4 @@
-import Forward5Icon from "@Components/atomos/Icon/MenuMuic/Forward5Icon";
-import PauseIcon from "@Components/atomos/Icon/MenuMuic/PauseIcon";
-import PlayIcon from "@Components/atomos/Icon/MenuMuic/PlayIcon";
-import Rewind5Icon from "@Components/atomos/Icon/MenuMuic/Rewind5Icon";
+import {Forward5Icon, PauseIcon, PlayIcon, Rewind5Icon} from "@Components/atomos/index.ts";
 
 type PlayerControlsProps = {
   isPlaying: boolean;
