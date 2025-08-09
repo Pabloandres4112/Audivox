@@ -8,3 +8,13 @@ body {
     font-family: sans-serif;
   }
   
+
+  .scroll-invisible::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+}
+
+.scroll-invisible {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;  /* IE 10+ */
+}

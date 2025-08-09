@@ -1,4 +1,7 @@
-import {ImagenReproductor, Text, Title, WaveformCanvas, } from "../../atomos/index.ts";
+import ImagenReproductor from "../../atomos/Img/ImagenReproductor";
+import { Text } from "../../atomos/Tittle/Text";
+import { Title } from "@Components/atomos/index.ts";
+import WaveformCanvas from "@Components/atomos/CanvaAnimation/WaveformCanvas";
 import useLowPerformance from "../../../hook/LowPerformeCanva";
 
 interface CardPresentacionAlbunProps {

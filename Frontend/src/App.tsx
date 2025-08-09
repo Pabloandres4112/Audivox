@@ -1,5 +1,6 @@
 //import Title from "@Components/atomos/Titel.tsx";
 
+import SpotifyClone from "@Components/clonSoptifi"
 import CardMusig from "@Components/organismos/page/CardMusig"
 
 //import Baner from "./Components/moleculas/bard/Baner"
@@ -27,7 +28,7 @@ function App() {
 
     <>
 
-      <CardMusig />
+      <SpotifyClone />
 
     </>
   )
