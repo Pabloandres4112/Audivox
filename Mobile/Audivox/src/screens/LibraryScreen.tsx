@@ -1,107 +1,250 @@
 import React from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { EmptyBlock } from '../components/common/StateBlocks';
-import { SongCard } from '../components/music/SongCard';
-import { artists, songs } from '../services/mockData';
-import { useAppStore } from '../store/useAppStore';
+import { localMediaService } from '../services/localMediaService';
+import { RecentTrack, useAppStore } from '../store/useAppStore';
 import { usePlayerStore } from '../store/usePlayerStore';
+import { theme } from '../theme';
 import { MainTabParamList } from '../navigation/types';
-import { SectionHeader, StatCard, playAndOpen } from './ui';
+import { SectionHeader, StatCard } from './ui';
 import { styles } from './styles';
+
+// ─── Recent Track Card ────────────────────────────────────────────────────────
+
+type RecentCardProps = {
+  track: RecentTrack;
+  isPlaying: boolean;
+  onPlay: () => void;
+};
+
+const RecentCard = ({ track, isPlaying, onPlay }: RecentCardProps) => {
+  const fmtDuration = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <Pressable style={styles.localTrackCard} onPress={onPlay}>
+      {track.artworkUrl ? (
+        <Image
+          source={{ uri: track.artworkUrl }}
+          style={[styles.localTrackIconWrap, { borderRadius: 10 }]}
+        />
+      ) : (
+        <View
+          style={[
+            styles.localTrackIconWrap,
+            isPlaying && { backgroundColor: theme.colors.primary },
+          ]}
+        >
+          <Icon
+            name="musical-note-outline"
+            size={20}
+            color={isPlaying ? theme.colors.background : theme.colors.primary}
+          />
+        </View>
+      )}
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.localTrackTitle} numberOfLines={1}>
+          {track.title}
+        </Text>
+        <Text style={styles.localTrackMeta} numberOfLines={1}>
+          {track.artistName}
+        </Text>
+        {track.genre ? (
+          <Text style={[styles.localTrackMeta, { color: theme.colors.primary, fontSize: 10 }]}>
+            {track.genre} · {fmtDuration(track.duration)}
+          </Text>
+        ) : (
+          <Text style={styles.localTrackMeta}>{fmtDuration(track.duration)}</Text>
+        )}
+      </View>
+      <Icon
+        name={isPlaying ? 'pause-circle' : 'play-circle-outline'}
+        size={30}
+        color={isPlaying ? theme.colors.primary : theme.colors.textMuted}
+      />
+    </Pressable>
+  );
+};
+
+// ─── Download Card ────────────────────────────────────────────────────────────
+
+type DownloadCardProps = {
+  item: {
+    id: string;
+    title: string;
+    thumbnailUrl?: string;
+    fileName?: string;
+    sizeLabel?: string;
+    format: string;
+  };
+  isPlaying: boolean;
+  onPlay: () => void;
+};
+
+const DownloadCard = ({ item, isPlaying, onPlay }: DownloadCardProps) => (
+  <Pressable style={styles.localTrackCard} onPress={onPlay}>
+    {item.thumbnailUrl ? (
+      <Image
+        source={{ uri: item.thumbnailUrl }}
+        style={[styles.localTrackIconWrap, { borderRadius: 10 }]}
+      />
+    ) : (
+      <View
+        style={[
+          styles.localTrackIconWrap,
+          isPlaying && { backgroundColor: theme.colors.primary },
+        ]}
+      >
+        <Icon
+          name="download-outline"
+          size={18}
+          color={isPlaying ? theme.colors.background : theme.colors.primary}
+        />
+      </View>
+    )}
+    <View style={{ flex: 1, gap: 2 }}>
+      <Text style={styles.localTrackTitle} numberOfLines={1}>
+        {item.title}
+      </Text>
+      <Text style={styles.localTrackMeta}>
+        {item.format.toUpperCase()} · {item.sizeLabel ?? '-'}
+      </Text>
+      {item.fileName ? (
+        <Text style={styles.localTrackMeta} numberOfLines={1}>
+          {item.fileName}
+        </Text>
+      ) : null}
+    </View>
+    <Icon
+      name={isPlaying ? 'pause-circle' : 'play-circle-outline'}
+      size={30}
+      color={isPlaying ? theme.colors.primary : theme.colors.textMuted}
+    />
+  </Pressable>
+);
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export const LibraryScreen = ({
   navigation,
 }: BottomTabScreenProps<MainTabParamList, 'LibraryTab'>) => {
-  const liked = useAppStore(s => s.likedSongs());
-  const recentIds = useAppStore(s => s.recentIds);
-  const downloadedIds = useAppStore(s => s.downloadedIds);
-  const play = usePlayerStore(s => s.playSong);
-  const recent = songs.filter(song => recentIds.includes(song.id));
-  const downloads = songs.filter(song => downloadedIds.includes(song.id));
+  const recentlyPlayedTracks = useAppStore(s => s.recentlyPlayedTracks);
+  const downloadHistory = useAppStore(s => s.downloadHistory);
+
+  const playSong = usePlayerStore(s => s.playSong);
+  const currentSong = usePlayerStore(s => s.current);
+  const isPlayerPlaying = usePlayerStore(s => s.isPlaying);
+
+  const playingAudiusId =
+    currentSong?.id.startsWith('audius-') && isPlayerPlaying
+      ? currentSong.id.slice(7)
+      : null;
+
+  const playingExtId =
+    currentSong?.id.startsWith('ext-') && isPlayerPlaying
+      ? currentSong.id.slice(4)
+      : null;
+
+  const recentTracks = recentlyPlayedTracks.slice(0, 10);
+  const localDownloads = downloadHistory.slice(0, 10);
+
+  const handlePlayRecent = async (track: RecentTrack) => {
+    const song = {
+      id: track.id,
+      title: track.title,
+      artistId: track.artistName,
+      albumId: '',
+      duration: track.duration,
+      artwork: track.artworkUrl ?? '',
+      streamUrl: track.streamUrl,
+    };
+    const ok = await playSong(song);
+    if (ok) navigation.getParent?.()?.navigate('Player' as never);
+  };
+
+  const handlePlayDownload = async (item: (typeof downloadHistory)[number]) => {
+    if (!item.fileName) return;
+    const dir = localMediaService.getAudivoxMusicDir();
+    const song = {
+      id: `ext-${item.id}`,
+      title: item.title,
+      artistId: 'local',
+      albumId: 'local',
+      duration: 0,
+      artwork: item.thumbnailUrl ?? '',
+      streamUrl: `file://${dir}/${item.fileName}`,
+    };
+    const ok = await playSong(song);
+    if (ok) navigation.getParent?.()?.navigate('Player' as never);
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.scrollPage}>
-      <Text style={styles.pageTitle}>Library</Text>
-      <Text style={styles.pageSub}>Your favorites, recent activity and downloads.</Text>
+      <Text style={styles.pageTitle}>Biblioteca</Text>
+      <Text style={styles.pageSub}>Tu historial de reproducción y descargas guardadas.</Text>
 
+      {/* ── Stats ── */}
       <View style={styles.statRow}>
-        <StatCard label="Liked" value={`${liked.length}`} icon="heart-outline" />
-        <StatCard label="Recent" value={`${recent.length}`} icon="time-outline" />
-        <StatCard label="Offline" value={`${downloads.length}`} icon="download-outline" />
+        <StatCard
+          label="Recientes"
+          value={`${recentlyPlayedTracks.length}`}
+          icon="time-outline"
+        />
+        <StatCard
+          label="Descargadas"
+          value={`${downloadHistory.length}`}
+          icon="download-outline"
+        />
       </View>
 
-      <SectionHeader title="Liked songs" subtitle="Tracks you have saved" />
-      {liked.length === 0 ? (
+      {/* ── Reproducidas recientemente ── */}
+      <SectionHeader
+        title="Reproducidas recientemente"
+        subtitle="Canciones de Audius que has escuchado"
+      />
+      {recentTracks.length === 0 ? (
         <EmptyBlock
-          title="No favorites yet"
-          subtitle="Tap heart on tracks to build your library."
-          icon="heart-outline"
-        />
-      ) : (
-        liked.map(song => (
-          <SongCard
-            key={song.id}
-            song={song}
-            artist={artists.find(a => a.id === song.artistId)?.name || 'Unknown'}
-            onPress={async () => {
-              await playAndOpen(
-                song.id,
-                play,
-                useAppStore.getState().markRecent,
-                navigation as never,
-              );
-            }}
-          />
-        ))
-      )}
-
-      <SectionHeader title="Recently played" />
-      {recent.length === 0 ? (
-        <EmptyBlock
-          title="No recent plays"
-          subtitle="Play something and it will appear here."
+          title="Sin historial"
+          subtitle="Reproduce canciones desde Home o Search y aparecerán aquí."
           icon="time-outline"
         />
       ) : (
-        recent.slice(0, 3).map(song => (
-          <SongCard
-            key={song.id}
-            song={song}
-            artist={artists.find(a => a.id === song.artistId)?.name || 'Unknown'}
-            onPress={async () => {
-              await playAndOpen(
-                song.id,
-                play,
-                useAppStore.getState().markRecent,
-                navigation as never,
-              );
-            }}
+        recentTracks.map(track => (
+          <RecentCard
+            key={track.id}
+            track={track}
+            isPlaying={
+              playingAudiusId === track.id.replace(/^audius-/, '') ||
+              currentSong?.id === track.id
+            }
+            onPlay={() => handlePlayRecent(track)}
           />
         ))
       )}
 
-      <SectionHeader title="Downloads" />
-      {downloads.length === 0 ? (
+      {/* ── Descargas guardadas ── */}
+      <SectionHeader
+        title="Guardadas localmente"
+        subtitle="Audio descargado para reproducción offline"
+      />
+      {localDownloads.length === 0 ? (
         <EmptyBlock
-          title="No downloads"
-          subtitle="Use song details to save tracks for offline mode."
+          title="Sin descargas"
+          subtitle="Ve a Search y toca Guardar para descargar canciones."
           icon="cloud-download-outline"
         />
       ) : (
-        downloads.map(song => (
-          <SongCard
-            key={song.id}
-            song={song}
-            artist={artists.find(a => a.id === song.artistId)?.name || 'Unknown'}
-            onPress={async () => {
-              await playAndOpen(
-                song.id,
-                play,
-                useAppStore.getState().markRecent,
-                navigation as never,
-              );
-            }}
+        localDownloads.map(item => (
+          <DownloadCard
+            key={item.id}
+            item={item}
+            isPlaying={playingExtId === item.id}
+            onPlay={() => handlePlayDownload(item)}
           />
         ))
       )}

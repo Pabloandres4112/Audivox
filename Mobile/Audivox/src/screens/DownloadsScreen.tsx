@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -6,12 +6,11 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { EmptyBlock } from '../components/common/StateBlocks';
-import { audiusService, AudiusTrackResult } from '../services/audiusService';
 import { localMediaService, LocalMediaItem } from '../services/localMediaService';
 import {
   ExternalDownload,
@@ -44,19 +43,10 @@ const STATUS_COLOR: Record<ExternalDownloadStatus, string> = {
 const dateLabel = (ts?: number) => {
   if (!ts) return '-';
   const d = new Date(ts);
-  return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
-};
-
-const formatDuration = (seconds: number) => {
-  const total = Math.max(0, Math.floor(seconds));
-  const mins = Math.floor(total / 60);
-  const secs = total % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-};
-
-const toDownloadFormat = (raw?: string): ExternalDownloadFormat => {
-  if (raw === 'm4a' || raw === 'wav' || raw === 'mp3') return raw;
-  return 'mp3';
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`;
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -87,15 +77,9 @@ const DownloadItemCard = ({
       )}
 
       <View style={{ flex: 1, gap: 3 }}>
-        {/* Título + badge DEMO en la misma fila */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={[styles.downloadItemTitle, { flex: 1 }]} numberOfLines={1}>
-            {item.title}
-          </Text>
-          <View style={styles.demoBadge}>
-            <Text style={styles.demoBadgeText}>DEMO</Text>
-          </View>
-        </View>
+        <Text style={styles.downloadItemTitle} numberOfLines={1}>
+          {item.title}
+        </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
           <Text style={[styles.downloadItemMeta, { color: STATUS_COLOR[item.status] }]}>
             {STATUS_LABEL[item.status]}
@@ -110,7 +94,10 @@ const DownloadItemCard = ({
           ) : null}
         </View>
         {item.error ? (
-          <Text style={[styles.downloadItemMeta, { color: theme.colors.danger }]} numberOfLines={2}>
+          <Text
+            style={[styles.downloadItemMeta, { color: theme.colors.danger }]}
+            numberOfLines={2}
+          >
             {item.error}
           </Text>
         ) : null}
@@ -186,7 +173,7 @@ const HistoryCard = ({ item, isPlaying, onPlay, onRemove }: HistoryCardProps) =>
     {item.thumbnailUrl ? (
       <Image source={{ uri: item.thumbnailUrl }} style={styles.historyThumb} />
     ) : (
-      <View style={[styles.historyThumb, styles.historyThumbFallback]}>
+      <View style={[styles.historyThumb, { alignItems: 'center', justifyContent: 'center' }]}>
         <Icon name="musical-note-outline" size={22} color={theme.colors.primary} />
       </View>
     )}
@@ -198,7 +185,8 @@ const HistoryCard = ({ item, isPlaying, onPlay, onRemove }: HistoryCardProps) =>
         {item.fileName || '-'}
       </Text>
       <Text style={styles.downloadItemMeta}>
-        {item.format.toUpperCase()} · {item.sizeLabel || '-'} · {dateLabel(item.completedAt)}
+        {item.format.toUpperCase()} · {item.sizeLabel || '-'} ·{' '}
+        {dateLabel(item.completedAt)}
       </Text>
       {isPlaying ? (
         <View style={styles.nowPlayingBadge}>
@@ -213,7 +201,11 @@ const HistoryCard = ({ item, isPlaying, onPlay, onRemove }: HistoryCardProps) =>
         style={[styles.dlPlayBtn, isPlaying && styles.dlPlayBtnPlaying]}
         hitSlop={8}
       >
-        <Icon name={isPlaying ? 'pause' : 'play'} size={17} color={theme.colors.background} />
+        <Icon
+          name={isPlaying ? 'pause' : 'play'}
+          size={17}
+          color={theme.colors.background}
+        />
       </Pressable>
       <Pressable onPress={onRemove} hitSlop={10}>
         <Icon name="trash-outline" size={16} color={theme.colors.danger} />
@@ -222,47 +214,12 @@ const HistoryCard = ({ item, isPlaying, onPlay, onRemove }: HistoryCardProps) =>
   </View>
 );
 
-type SearchResultCardProps = {
-  item: AudiusTrackResult;
-  onDownload: () => void;
-};
-
-const SearchResultCard = ({ item, onDownload }: SearchResultCardProps) => (
-  <View style={styles.resultPill}>
-    <View style={styles.dlCardRow}>
-      {item.artworkUrl ? (
-        <Image source={{ uri: item.artworkUrl }} style={styles.dlThumb} />
-      ) : (
-        <View style={[styles.dlThumb, styles.dlThumbFallback]}>
-          <Icon name="radio-outline" size={18} color={theme.colors.primary} />
-        </View>
-      )}
-      <View style={{ flex: 1, gap: 3 }}>
-        <Text style={styles.resultSecondary} numberOfLines={1}>
-          {item.title}
-        </Text>
-        <Text style={styles.downloadItemMeta} numberOfLines={1}>
-          {item.artistName}
-        </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-          {item.genre ? <Text style={styles.resultPrimary}>{item.genre}</Text> : null}
-          <Text style={styles.downloadItemMeta}>{formatDuration(item.duration)}</Text>
-          <Text style={styles.downloadItemMeta}>·</Text>
-          <Text style={styles.downloadItemFormat}>{item.format.toUpperCase()}</Text>
-        </View>
-      </View>
-      <Pressable onPress={onDownload} style={styles.dlPlayBtn} hitSlop={8}>
-        <Icon name="download-outline" size={18} color={theme.colors.background} />
-      </Pressable>
-    </View>
-  </View>
-);
-
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export const DownloadsScreen = () => {
+  const navigation = useNavigation<any>();
+
   const externalDownloads = useAppStore(s => s.externalDownloads);
-  const enqueueExternalDownload = useAppStore(s => s.enqueueExternalDownload);
   const updateExternalDownload = useAppStore(s => s.updateExternalDownload);
   const addToDownloadHistory = useAppStore(s => s.addToDownloadHistory);
   const removeExternalDownload = useAppStore(s => s.removeExternalDownload);
@@ -275,20 +232,15 @@ export const DownloadsScreen = () => {
   const currentSong = usePlayerStore(s => s.current);
   const isPlayerPlaying = usePlayerStore(s => s.isPlaying);
 
-  const [query, setQuery] = useState('');
-  const [errorText, setErrorText] = useState<string | null>(null);
   const [successText, setSuccessText] = useState<string | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [folderPath, setFolderPath] = useState('');
   const [storageGranted, setStorageGranted] = useState(false);
   const [audioFiles, setAudioFiles] = useState<LocalMediaItem[]>([]);
-  const [imageFiles, setImageFiles] = useState<LocalMediaItem[]>([]);
   const [localStatus, setLocalStatus] = useState('Permisos pendientes');
-  const [searchResults, setSearchResults] = useState<AudiusTrackResult[]>([]);
 
-  // Tracking activo de descargas (para cancelación futura)
-  const activeDownloads = React.useRef<Set<string>>(new Set());
+  const activeDownloads = useRef<Set<string>>(new Set());
 
   const sortedExternalDownloads = useMemo(
     () =>
@@ -331,6 +283,15 @@ export const DownloadsScreen = () => {
     localMediaService.ensureAudivoxFolder().then(setFolderPath).catch(() => {});
   }, []);
 
+  // Auto-iniciar descargas encoladas (pueden venir de SearchScreen)
+  useEffect(() => {
+    const queued = externalDownloads.filter(
+      d => d.status === 'queued' && !activeDownloads.current.has(d.id),
+    );
+    queued.forEach(item => performDownload(item));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalDownloads]);
+
   const requestStorage = async () => {
     const result = await localMediaService.requestStoragePermissions();
     setStorageGranted(result.granted);
@@ -345,7 +306,6 @@ export const DownloadsScreen = () => {
     const scan = await localMediaService.scanAudivoxFolder();
     setFolderPath(scan.dir);
     setAudioFiles(scan.audio);
-    setImageFiles(scan.images);
     setLocalStatus(`Listo: ${scan.audio.length} audio · ${scan.images.length} imágenes`);
   };
 
@@ -369,7 +329,7 @@ export const DownloadsScreen = () => {
         target.title,
         target.format,
         target.thumbnailUrl,
-        (pct) => {
+        pct => {
           if (activeDownloads.current.has(target.id)) {
             updateExternalDownload(target.id, { progress: pct });
           }
@@ -399,10 +359,9 @@ export const DownloadsScreen = () => {
         sizeLabel: result.sizeLabel,
       });
       addToDownloadHistory(completedItem);
-      setSuccessText(`Descarga exitosa: ${result.fileName} (${result.sizeLabel ?? ''})`);
+      setSuccessText(`Descarga lista: ${result.fileName}`);
       setLocalStatus('Archivo guardado en AudivoxMusic');
       scanLocalFolder().catch(() => {});
-
     } catch (err) {
       if (!activeDownloads.current.has(target.id)) return;
       const msg = err instanceof Error ? err.message : String(err);
@@ -413,58 +372,8 @@ export const DownloadsScreen = () => {
     }
   };
 
-  const submitSearch = async () => {
-    const cleanQuery = query.trim();
-    if (!cleanQuery) {
-      setErrorText('Escribe el nombre de una canción o artista.');
-      return;
-    }
-    setIsSearching(true);
-    setErrorText(null);
-    setSuccessText(null);
-
-    try {
-      const results = await audiusService.searchTracks(cleanQuery);
-      setSearchResults(results);
-      if (results.length === 0) {
-        setLocalStatus('No hubo resultados para esa búsqueda.');
-      } else {
-        setLocalStatus(`Resultados encontrados: ${results.length}`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'No se pudo buscar en Audius.';
-      setErrorText(msg);
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  const queueAudiusDownload = async (track: AudiusTrackResult) => {
-    setErrorText(null);
-    setSuccessText(null);
-
-    const id = `ext-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
-    const format = toDownloadFormat(track.format);
-    const queuedItem: ExternalDownload = {
-      id,
-      url: track.streamUrl,
-      title: track.title,
-      thumbnailUrl: track.artworkUrl,
-      format,
-      status: 'queued',
-      progress: 0,
-      createdAt: Date.now(),
-    };
-
-    enqueueExternalDownload(queuedItem);
-    setSuccessText(`Descarga en cola: ${track.title}`);
-    setLocalStatus(`Preparando descarga de ${track.artistName}`);
-    performDownload(queuedItem);
-  };
-
   const removeItem = (id: string) => {
-    activeDownloads.current.delete(id); // cancela callback de progreso
+    activeDownloads.current.delete(id);
     removeExternalDownload(id);
   };
 
@@ -485,30 +394,27 @@ export const DownloadsScreen = () => {
     const dir = localMediaService.getAudivoxMusicDir();
     const localUri = item.fileName ? `file://${dir}/${item.fileName}` : null;
 
-    const song = {
-      id: `ext-${item.id}`,
-      title: item.title,
-      artistId: 'a1',
-      albumId: 'al1',
-      duration: 0,
-      artwork: item.thumbnailUrl ?? '',
-      streamUrl: localUri ?? '',
-    };
-
     if (!localUri) {
       setErrorText('No hay archivo local. Descarga la canción primero.');
       return;
     }
 
-    const ok = await playSong(song);
+    const song = {
+      id: `ext-${item.id}`,
+      title: item.title,
+      artistId: 'local',
+      albumId: 'local',
+      duration: 0,
+      artwork: item.thumbnailUrl ?? '',
+      streamUrl: localUri,
+    };
 
+    const ok = await playSong(song);
     if (ok) {
       setSuccessText(`Reproduciendo: ${item.title}`);
       setErrorText(null);
     } else {
-      setErrorText(
-        'No se pudo reproducir. El archivo puede estar corrupto o no es audio válido.',
-      );
+      setErrorText('No se pudo reproducir. El archivo puede estar corrupto.');
     }
   };
 
@@ -516,11 +422,27 @@ export const DownloadsScreen = () => {
 
   return (
     <ScrollView contentContainerStyle={styles.scrollPage}>
-
       <View>
         <Text style={styles.pageTitle}>Descargas</Text>
-        <Text style={styles.pageSub}>Busca música en Audius y guárdala en AudivoxMusic para oírla offline.</Text>
+        <Text style={styles.pageSub}>Gestiona tus descargas y archivos locales offline.</Text>
       </View>
+
+      {/* ── CTA: ir a buscar música ── */}
+      <Pressable
+        style={styles.searchCta}
+        onPress={() => navigation.navigate('SearchTab')}
+      >
+        <View style={styles.searchCtaIcon}>
+          <Icon name="search-outline" size={18} color={theme.colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.searchCtaTitle}>Buscar música para descargar</Text>
+          <Text style={styles.searchCtaSub}>
+            Encuentra canciones en Search → toca "Guardar"
+          </Text>
+        </View>
+        <Icon name="chevron-forward-outline" size={18} color={theme.colors.textMuted} />
+      </Pressable>
 
       {successText ? (
         <View style={styles.successBanner}>
@@ -536,80 +458,44 @@ export const DownloadsScreen = () => {
         </View>
       ) : null}
 
-      {/* ── Permisos y escaneo ── */}
+      {/* ── Carpeta local ── */}
       <View style={styles.localControlCard}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Icon name="folder-open-outline" size={15} color={theme.colors.primary} />
-          <Text style={styles.inputLabel}>Carpeta: {folderPath || 'Inicializando...'}</Text>
+          <Text style={styles.inputLabel} numberOfLines={1}>
+            {folderPath
+              ? folderPath.split('/').slice(-2).join('/')
+              : 'Inicializando…'}
+          </Text>
         </View>
         <View style={styles.localControlActions}>
           <Pressable onPress={requestStorage} style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Pedir permisos</Text>
+            <Text style={styles.secondaryButtonText}>Permisos</Text>
           </Pressable>
           <Pressable onPress={scanLocalFolder} style={styles.secondaryButton}>
             <Text style={styles.secondaryButtonText}>Escanear</Text>
           </Pressable>
         </View>
-        <Text style={[styles.localControlStatus, !storageGranted && { color: theme.colors.textMuted }]}>
+        <Text
+          style={[
+            styles.localControlStatus,
+            !storageGranted && { color: theme.colors.textMuted },
+          ]}
+        >
           {localStatus}
         </Text>
-        {(audioFiles.length > 0 || imageFiles.length > 0) && (
-          <Text style={styles.localControlSub}>
-            Audio: {audioFiles.length} · Imágenes: {imageFiles.length}
-          </Text>
+        {audioFiles.length > 0 && (
+          <Text style={styles.localControlSub}>Audio: {audioFiles.length}</Text>
         )}
-      </View>
-
-      {/* ── Descargador ── */}
-      <View style={styles.downloaderCard}>
-        <Text style={styles.sectionTitle}>Buscar y descargar</Text>
-
-        <Text style={styles.inputLabel}>Canción o artista</Text>
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          style={styles.searchInput}
-          autoCapitalize="words"
-          autoCorrect={false}
-          placeholder="Ej: Disclosure, Daft Punk, house..."
-          placeholderTextColor={theme.colors.textMuted}
-          onSubmitEditing={submitSearch}
-        />
-
-        <Pressable onPress={submitSearch} style={styles.primaryButton} disabled={isSearching}>
-          {isSearching ? (
-            <ActivityIndicator color={theme.colors.background} />
-          ) : (
-            <Text style={styles.primaryButtonText}>Buscar</Text>
-          )}
-        </Pressable>
-
-        <View style={styles.demoBanner}>
-          <Icon name="information-circle-outline" size={13} color={theme.colors.accent} />
-          <Text style={styles.demoBannerText}>
-            Fuente online: Audius. Busca una pista, toca descargar y el audio se guarda
-            localmente en AudivoxMusic para reproducirlo sin Internet.
-          </Text>
-        </View>
-
-        {searchResults.length > 0 ? (
-          <View style={{ gap: 10 }}>
-            <Text style={styles.inputLabel}>Resultados</Text>
-            {searchResults.map(item => (
-              <SearchResultCard
-                key={item.id}
-                item={item}
-                onDownload={() => queueAudiusDownload(item)}
-              />
-            ))}
-          </View>
-        ) : null}
       </View>
 
       {/* ── Descargas activas ── */}
       <View style={styles.downloadsHeaderRow}>
         <Text style={styles.sectionTitle}>
-          Descargas{sortedExternalDownloads.length > 0 ? ` (${sortedExternalDownloads.length})` : ''}
+          Descargas
+          {sortedExternalDownloads.length > 0
+            ? ` (${sortedExternalDownloads.length})`
+            : ''}
         </Text>
         {sortedExternalDownloads.some(i => i.status === 'completed') ? (
           <Pressable onPress={clearCompletedExternalDownloads}>
@@ -620,8 +506,8 @@ export const DownloadsScreen = () => {
 
       {sortedExternalDownloads.length === 0 ? (
         <EmptyBlock
-          title="Sin descargas"
-          subtitle="Busca una pista arriba y descárgala al dispositivo."
+          title="Sin descargas activas"
+          subtitle="Busca canciones en Search y toca Guardar para descargarlas."
           icon="cloud-download-outline"
         />
       ) : (
@@ -657,7 +543,7 @@ export const DownloadsScreen = () => {
       {recentHistory.length === 0 ? (
         <EmptyBlock
           title="Sin historial"
-          subtitle="Cuando finalice una descarga aparecerá aquí."
+          subtitle="Las descargas completadas aparecerán aquí."
           icon="time-outline"
         />
       ) : (
@@ -672,19 +558,13 @@ export const DownloadsScreen = () => {
         ))
       )}
 
-
-      {/* ── Archivos en AudivoxMusic ── */}
-      {(audioFiles.length > 0 || imageFiles.length > 0) && (
+      {/* ── Archivos locales ── */}
+      {audioFiles.length > 0 && (
         <View style={styles.localFilesCard}>
           <Text style={styles.sectionTitle}>Archivos en AudivoxMusic</Text>
           {audioFiles.slice(0, 8).map(file => (
             <Text key={file.path} style={styles.localFileRow} numberOfLines={1}>
               {file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB
-            </Text>
-          ))}
-          {imageFiles.slice(0, 4).map(file => (
-            <Text key={file.path} style={styles.localFileRow} numberOfLines={1}>
-              {file.name}
             </Text>
           ))}
         </View>
@@ -700,7 +580,9 @@ export const DownloadsScreen = () => {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalTopBar}>
-              <Text style={styles.modalTitle}>Historial ({sortedHistory.length})</Text>
+              <Text style={styles.modalTitle}>
+                Historial ({sortedHistory.length})
+              </Text>
               <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
                 {sortedHistory.length > 0 && (
                   <Pressable
@@ -709,7 +591,9 @@ export const DownloadsScreen = () => {
                       setIsHistoryModalOpen(false);
                     }}
                   >
-                    <Text style={[styles.sectionAction, { color: theme.colors.danger }]}>
+                    <Text
+                      style={[styles.sectionAction, { color: theme.colors.danger }]}
+                    >
                       Borrar todo
                     </Text>
                   </Pressable>

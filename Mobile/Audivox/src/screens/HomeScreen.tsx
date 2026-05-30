@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
@@ -18,6 +17,18 @@ import { usePlayerStore } from '../store/usePlayerStore';
 import { theme } from '../theme';
 import { MainTabParamList } from '../navigation/types';
 import { styles } from './styles';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const GENRE_CHIPS: { label: string; audius?: string; icon: string }[] = [
+  { label: 'Tendencias', icon: 'trending-up-outline' },
+  { label: 'Electronic', icon: 'radio-outline', audius: 'Electronic' },
+  { label: 'Hip-Hop', icon: 'mic-outline', audius: 'Hip-Hop/Rap' },
+  { label: 'Pop', icon: 'musical-notes-outline', audius: 'Pop' },
+  { label: 'Rock', icon: 'flash-outline', audius: 'Rock' },
+  { label: 'R&B', icon: 'heart-outline', audius: 'R&B/Soul' },
+  { label: 'Indie', icon: 'leaf-outline', audius: 'Indie Pop' },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -136,18 +147,17 @@ export const HomeScreen = ({
   const setModePreference = useAppStore(s => s.setModePreference);
   const isConnected = useAppStore(s => s.isConnected);
   const downloadHistory = useAppStore(s => s.downloadHistory);
+  const addRecentTrack = useAppStore(s => s.addRecentTrack);
 
-  const { playSong, current: currentSong, isPlaying: isPlayerPlaying } =
-    usePlayerStore();
+  const { playSong, current: currentSong, isPlaying: isPlayerPlaying } = usePlayerStore();
 
   const effectiveMode = isConnected ? modePreference : 'offline';
 
   // ── Estado ONLINE: Audius ──────────────────────────────────────────────────
   const [audiusTracks, setAudiusTracks] = useState<AudiusTrackResult[]>([]);
-  const [audiusQuery, setAudiusQuery] = useState('');
   const [audiusLoading, setAudiusLoading] = useState(false);
   const [audiusError, setAudiusError] = useState<string | null>(null);
-  const [audiusMode, setAudiusMode] = useState<'trending' | 'search'>('trending');
+  const [activeGenre, setActiveGenre] = useState(0);
 
   // ── Estado OFFLINE: música local ──────────────────────────────────────────
   const [localTracks, setLocalTracks] = useState<LocalMediaItem[]>([]);
@@ -155,51 +165,28 @@ export const HomeScreen = ({
     'idle' | 'scanning' | 'done' | 'no-permission'
   >('idle');
 
-  // ── Audius: cargar trending al entrar en online ───────────────────────────
+  // ── Cargar trending al entrar en modo online ──────────────────────────────
   useEffect(() => {
     if (effectiveMode !== 'online') return;
-
-    setAudiusLoading(true);
-    setAudiusError(null);
-    audiusService
-      .getTrending(15)
-      .then(tracks => {
-        setAudiusTracks(tracks);
-        setAudiusMode('trending');
-      })
-      .catch(e => setAudiusError(e?.message ?? 'No se pudo conectar a Audius.'))
-      .finally(() => setAudiusLoading(false));
+    loadGenre(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveMode]);
 
-  // ── Audius: búsqueda con debounce ─────────────────────────────────────────
-  useEffect(() => {
-    if (effectiveMode !== 'online') return;
-    if (!audiusQuery.trim()) {
-      // Si borra la query, volver al trending
-      setAudiusMode('trending');
-      return;
-    }
+  const loadGenre = (idx: number) => {
+    setActiveGenre(idx);
+    setAudiusLoading(true);
+    setAudiusError(null);
+    const genre = GENRE_CHIPS[idx].audius;
+    audiusService
+      .getTrending(15, genre)
+      .then(setAudiusTracks)
+      .catch(e => setAudiusError(e?.message ?? 'No se pudo conectar a Audius.'))
+      .finally(() => setAudiusLoading(false));
+  };
 
-    const timer = setTimeout(() => {
-      setAudiusLoading(true);
-      setAudiusError(null);
-      audiusService
-        .searchTracks(audiusQuery, 15)
-        .then(tracks => {
-          setAudiusTracks(tracks);
-          setAudiusMode('search');
-        })
-        .catch(e => setAudiusError(e?.message ?? 'Error al buscar.'))
-        .finally(() => setAudiusLoading(false));
-    }, 600);
-
-    return () => clearTimeout(timer);
-  }, [audiusQuery, effectiveMode]);
-
-  // ── Offline: escanear música local ───────────────────────────────────────
+  // ── Offline: escanear música local ────────────────────────────────────────
   useEffect(() => {
     if (effectiveMode !== 'offline') return;
-
     setLocalScanStatus('scanning');
     localMediaService
       .requestStoragePermissions()
@@ -212,7 +199,7 @@ export const HomeScreen = ({
       .catch(() => setLocalScanStatus('done'));
   }, [effectiveMode]);
 
-  // ── ID de track activo ────────────────────────────────────────────────────
+  // ── IDs activos ───────────────────────────────────────────────────────────
   const playingAudiusId =
     currentSong?.id.startsWith('audius-') && isPlayerPlaying
       ? currentSong.id.slice(7)
@@ -241,7 +228,18 @@ export const HomeScreen = ({
       streamUrl: track.streamUrl,
     };
     const ok = await playSong(song);
-    if (ok) navigation.getParent?.()?.navigate('Player' as never);
+    if (ok) {
+      addRecentTrack({
+        id: `audius-${track.id}`,
+        title: track.title,
+        artistName: track.artistName,
+        artworkUrl: track.artworkUrl,
+        duration: track.duration,
+        genre: track.genre,
+        streamUrl: track.streamUrl,
+      });
+      navigation.getParent?.()?.navigate('Player' as never);
+    }
   };
 
   const handlePlayLocal = async (track: LocalMediaItem) => {
@@ -303,10 +301,17 @@ export const HomeScreen = ({
         <View style={styles.homeToolbar}>
           <Pressable
             style={styles.homeToolBtn}
+            onPress={() => navigation.navigate('SearchTab')}
+          >
+            <Icon name="search-outline" size={16} color={theme.colors.primary} />
+            <Text style={styles.homeToolText}>Buscar</Text>
+          </Pressable>
+          <Pressable
+            style={styles.homeToolBtn}
             onPress={() => navigation.navigate('DownloadsTab')}
           >
             <Icon name="cloud-download-outline" size={16} color={theme.colors.primary} />
-            <Text style={styles.homeToolText}>Descargar</Text>
+            <Text style={styles.homeToolText}>Descargas</Text>
           </Pressable>
           <Pressable
             style={styles.homeToolBtn}
@@ -315,124 +320,145 @@ export const HomeScreen = ({
             <Icon name="library-outline" size={16} color={theme.colors.primary} />
             <Text style={styles.homeToolText}>Biblioteca</Text>
           </Pressable>
-          <Pressable
-            style={styles.homeToolBtn}
-            onPress={() => navigation.navigate('SearchTab')}
-          >
-            <Icon name="search-outline" size={16} color={theme.colors.primary} />
-            <Text style={styles.homeToolText}>Buscar</Text>
-          </Pressable>
         </View>
 
-        {/* ── Mode Switch ── */}
+        {/* ── Mode Switch (compacto) ── */}
         <View style={styles.modeSwitchCard}>
           <View style={styles.modeSwitchHeaderRow}>
-            <Text style={styles.modeSwitchTitle}>Modo de reproducción</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
               <View
                 style={{
-                  width: 7, height: 7, borderRadius: 4,
-                  backgroundColor: isConnected ? theme.colors.success : theme.colors.danger,
+                  width: 7,
+                  height: 7,
+                  borderRadius: 4,
+                  backgroundColor: isConnected
+                    ? theme.colors.success
+                    : theme.colors.danger,
                 }}
               />
-              <Text style={isConnected ? styles.onlinePill : styles.offlineAutoPill}>
-                {isConnected ? 'Conectado' : 'Sin internet · Offline auto'}
+              <Text style={styles.modeSwitchTitle}>
+                {isConnected ? 'Online' : 'Sin internet · Offline auto'}
               </Text>
             </View>
-          </View>
-          <View style={styles.modeSwitchRow}>
-            <Pressable
-              onPress={() => setModePreference('online')}
-              style={[styles.modeChip, effectiveMode === 'online' && styles.modeChipActive]}
-            >
-              <Icon
-                name="wifi-outline"
-                size={14}
-                color={effectiveMode === 'online' ? theme.colors.background : theme.colors.text}
-              />
-              <Text style={[styles.modeChipText, effectiveMode === 'online' && styles.modeChipTextActive]}>
-                Online
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setModePreference('offline')}
-              style={[styles.modeChip, effectiveMode === 'offline' && styles.modeChipActive]}
-            >
-              <Icon
-                name="phone-portrait-outline"
-                size={14}
-                color={effectiveMode === 'offline' ? theme.colors.background : theme.colors.text}
-              />
-              <Text style={[styles.modeChipText, effectiveMode === 'offline' && styles.modeChipTextActive]}>
-                Offline
-              </Text>
-            </Pressable>
+            <View style={styles.modeSwitchRow}>
+              <Pressable
+                onPress={() => setModePreference('online')}
+                style={[styles.modeChip, effectiveMode === 'online' && styles.modeChipActive]}
+              >
+                <Icon
+                  name="wifi-outline"
+                  size={13}
+                  color={
+                    effectiveMode === 'online'
+                      ? theme.colors.background
+                      : theme.colors.text
+                  }
+                />
+                <Text
+                  style={[
+                    styles.modeChipText,
+                    effectiveMode === 'online' && styles.modeChipTextActive,
+                  ]}
+                >
+                  Online
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setModePreference('offline')}
+                style={[styles.modeChip, effectiveMode === 'offline' && styles.modeChipActive]}
+              >
+                <Icon
+                  name="phone-portrait-outline"
+                  size={13}
+                  color={
+                    effectiveMode === 'offline'
+                      ? theme.colors.background
+                      : theme.colors.text
+                  }
+                />
+                <Text
+                  style={[
+                    styles.modeChipText,
+                    effectiveMode === 'offline' && styles.modeChipTextActive,
+                  ]}
+                >
+                  Offline
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </View>
 
-        {/* ══════════════════════════════════════════════════════
-            MODO ONLINE — Audius (streaming directo, gratis)
-            ══════════════════════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════
+            MODO ONLINE — Audius (streaming directo)
+            ══════════════════════════════════════════ */}
         {effectiveMode === 'online' && (
           <View style={{ gap: 12 }}>
 
-            {/* Barra de búsqueda */}
-            <View style={styles.downloaderCard}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Icon name="radio-outline" size={16} color={theme.colors.primary} />
-                <Text style={styles.sectionTitle}>Audius</Text>
-                <View style={styles.demoBadge}>
-                  <Text style={styles.demoBadgeText}>GRATIS</Text>
-                </View>
-              </View>
+            {/* Chips de género */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.genreChipsRow}
+            >
+              {GENRE_CHIPS.map((g, i) => (
+                <Pressable
+                  key={g.label}
+                  style={[
+                    styles.genreChip,
+                    activeGenre === i && styles.genreChipActive,
+                  ]}
+                  onPress={() => loadGenre(i)}
+                >
+                  <Icon
+                    name={g.icon}
+                    size={13}
+                    color={
+                      activeGenre === i
+                        ? theme.colors.background
+                        : theme.colors.textMuted
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.genreChipText,
+                      activeGenre === i && styles.genreChipTextActive,
+                    ]}
+                  >
+                    {g.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
 
-              <TextInput
-                value={audiusQuery}
-                onChangeText={setAudiusQuery}
-                style={styles.searchInput}
-                placeholder="Buscar artista, canción o género..."
-                placeholderTextColor={theme.colors.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-              />
-
-              {audiusError ? (
-                <View style={styles.errorBanner}>
-                  <Icon name="alert-circle-outline" size={13} color={theme.colors.danger} />
-                  <Text style={styles.errorBannerText}>{audiusError}</Text>
-                </View>
-              ) : null}
-            </View>
-
-            {/* Lista: trending o resultados */}
+            {/* Header de lista */}
             <View style={styles.downloadsHeaderRow}>
               <Text style={styles.sectionTitle}>
-                {audiusMode === 'search'
-                  ? `Resultados (${audiusTracks.length})`
-                  : 'Tendencias globales'}
+                {GENRE_CHIPS[activeGenre]?.label ?? 'Tendencias'}
               </Text>
-              {audiusMode === 'search' && (
-                <Pressable onPress={() => { setAudiusQuery(''); }}>
-                  <Text style={styles.sectionAction}>Limpiar</Text>
-                </Pressable>
-              )}
+              <View style={styles.audiusCredit}>
+                <Icon name="radio-outline" size={11} color={theme.colors.primary} />
+                <Text style={styles.audiusCreditText}>Audius</Text>
+              </View>
             </View>
+
+            {audiusError ? (
+              <View style={styles.errorBanner}>
+                <Icon name="alert-circle-outline" size={13} color={theme.colors.danger} />
+                <Text style={styles.errorBannerText}>{audiusError}</Text>
+              </View>
+            ) : null}
 
             {audiusLoading ? (
               <View style={{ alignItems: 'center', padding: 24, gap: 10 }}>
                 <ActivityIndicator color={theme.colors.primary} size="large" />
-                <Text style={styles.localTrackMeta}>
-                  {audiusMode === 'search' ? 'Buscando...' : 'Cargando tendencias...'}
-                </Text>
+                <Text style={styles.localTrackMeta}>Cargando música…</Text>
               </View>
             ) : audiusTracks.length === 0 && !audiusError ? (
               <View style={styles.offlineBanner}>
                 <Icon name="musical-notes-outline" size={14} color={theme.colors.primary} />
                 <Text style={styles.offlineBannerText}>
-                  {audiusMode === 'search'
-                    ? 'Sin resultados para esa búsqueda.'
-                    : 'No se pudieron cargar las tendencias.'}
+                  No se pudieron cargar los resultados.
                 </Text>
               </View>
             ) : (
@@ -446,7 +472,7 @@ export const HomeScreen = ({
               ))
             )}
 
-            {/* Descargas recientes (para reproducir offline desde Home) */}
+            {/* Descargas recientes */}
             {recentDownloads.length > 0 && (
               <>
                 <View style={styles.downloadsHeaderRow}>
@@ -456,32 +482,54 @@ export const HomeScreen = ({
                   </Pressable>
                 </View>
                 {recentDownloads.map(item => (
-                  <Pressable key={item.id} style={styles.localTrackCard} onPress={() => handlePlayDownload(item)}>
+                  <Pressable
+                    key={item.id}
+                    style={styles.localTrackCard}
+                    onPress={() => handlePlayDownload(item)}
+                  >
                     {item.thumbnailUrl ? (
                       <Image
                         source={{ uri: item.thumbnailUrl }}
                         style={[styles.localTrackIconWrap, { borderRadius: 10 }]}
                       />
                     ) : (
-                      <View style={[
-                        styles.localTrackIconWrap,
-                        playingExtId === item.id && { backgroundColor: theme.colors.primary },
-                      ]}>
+                      <View
+                        style={[
+                          styles.localTrackIconWrap,
+                          playingExtId === item.id && {
+                            backgroundColor: theme.colors.primary,
+                          },
+                        ]}
+                      >
                         <Icon
                           name="download-outline"
                           size={18}
-                          color={playingExtId === item.id ? theme.colors.background : theme.colors.primary}
+                          color={
+                            playingExtId === item.id
+                              ? theme.colors.background
+                              : theme.colors.primary
+                          }
                         />
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.localTrackTitle} numberOfLines={1}>{item.title}</Text>
-                      <Text style={styles.localTrackMeta}>{item.fileName ?? '-'} · {item.sizeLabel ?? ''}</Text>
+                      <Text style={styles.localTrackTitle} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      <Text style={styles.localTrackMeta}>
+                        {item.fileName ?? '-'} · {item.sizeLabel ?? ''}
+                      </Text>
                     </View>
                     <Icon
-                      name={playingExtId === item.id ? 'pause-circle' : 'play-circle-outline'}
+                      name={
+                        playingExtId === item.id ? 'pause-circle' : 'play-circle-outline'
+                      }
                       size={30}
-                      color={playingExtId === item.id ? theme.colors.primary : theme.colors.textMuted}
+                      color={
+                        playingExtId === item.id
+                          ? theme.colors.primary
+                          : theme.colors.textMuted
+                      }
                     />
                   </Pressable>
                 ))}
@@ -490,9 +538,9 @@ export const HomeScreen = ({
           </View>
         )}
 
-        {/* ══════════════════════════════════════════════════════
+        {/* ══════════════════════════════════════════
             MODO OFFLINE — música local del dispositivo
-            ══════════════════════════════════════════════════════ */}
+            ══════════════════════════════════════════ */}
         {effectiveMode === 'offline' && (
           <View style={{ gap: 10 }}>
             <View style={styles.offlineBanner}>
@@ -512,7 +560,7 @@ export const HomeScreen = ({
             {localScanStatus === 'scanning' && (
               <View style={{ alignItems: 'center', padding: 24, gap: 10 }}>
                 <ActivityIndicator color={theme.colors.primary} size="large" />
-                <Text style={styles.localTrackMeta}>Escaneando dispositivo...</Text>
+                <Text style={styles.localTrackMeta}>Escaneando dispositivo…</Text>
               </View>
             )}
 
@@ -520,7 +568,7 @@ export const HomeScreen = ({
               <View style={styles.errorBanner}>
                 <Icon name="lock-closed-outline" size={14} color={theme.colors.danger} />
                 <Text style={styles.errorBannerText}>
-                  Sin permiso de almacenamiento. Ve a Descargas → Pedir permisos.
+                  Sin permiso de almacenamiento. Ve a Descargas → Permisos.
                 </Text>
               </View>
             )}

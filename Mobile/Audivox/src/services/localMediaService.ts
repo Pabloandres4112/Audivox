@@ -5,6 +5,19 @@ import { ExternalDownloadFormat } from '../store/useAppStore';
 const AUDIO_EXT = ['.mp3', '.m4a', '.wav', '.aac', '.flac', '.ogg', '.opus'];
 const IMAGE_EXT = ['.jpg', '.jpeg', '.png', '.webp'];
 
+const MIN_AUDIO_BYTES = 64 * 1024;
+const MIN_CONTENT_LENGTH_BYTES = 32 * 1024;
+const MIN_AVG_BYTES_PER_SECOND = 2500;
+
+const AUDIO_CONTENT_TYPE_RE = /audio\/|video\/mp4|application\/octet-stream|binary\/octet-stream/i;
+const INVALID_CONTENT_TYPE_RE = /text\/html|application\/json|text\/plain|application\/xml/i;
+
+const YOUTUBE_URL_RE = /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[a-zA-Z0-9_-]{6,}/i;
+
+// Configura aqui tu endpoint propio de conversion. Ejemplo:
+// https://tu-backend.com/api/youtube/convert
+const YOUTUBE_CONVERTER_ENDPOINT = '';
+
 const hasExt = (name: string, exts: string[]) =>
   exts.some(ext => name.toLowerCase().endsWith(ext));
 
@@ -16,7 +29,7 @@ const toMediaItem = (entry: ReadDirItem) => ({
 });
 
 const sanitizeFilename = (raw: string) =>
-  raw.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '_').slice(0, 40);
+  raw.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '_').slice(0, 60);
 
 const normalizeAudioExtension = (raw?: string | null) => {
   const ext = (raw ?? '').toLowerCase().replace('.', '');
@@ -26,6 +39,49 @@ const normalizeAudioExtension = (raw?: string | null) => {
   return 'mp3';
 };
 
+const ensureHttpUrl = (value: string) => {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+const normalizeHeaders = (headers?: Record<string, string | number>) => {
+  const output: Record<string, string> = {};
+  Object.entries(headers ?? {}).forEach(([k, v]) => {
+    output[k.toLowerCase()] = String(v);
+  });
+  return output;
+};
+
+const detectAudioFormatFromHeader = (headerChunk: string): string | null => {
+  const chunk = headerChunk || '';
+
+  if (chunk.startsWith('ID3')) return 'mp3';
+  if (chunk.startsWith('RIFF') && chunk.includes('WAVE')) return 'wav';
+  if (chunk.startsWith('OggS')) return 'ogg';
+  if (chunk.startsWith('fLaC')) return 'flac';
+
+  const ftypIndex = chunk.indexOf('ftyp');
+  if (ftypIndex >= 0 && ftypIndex <= 8) return 'm4a';
+
+  return null;
+};
+
+const looksLikeTextPayload = (headerChunk: string) => {
+  const trimmed = headerChunk.trimStart().toLowerCase();
+  if (!trimmed) return false;
+  return (
+    trimmed.startsWith('<!doctype html') ||
+    trimmed.startsWith('<html') ||
+    trimmed.startsWith('{"error"') ||
+    trimmed.startsWith('{"message"') ||
+    trimmed.startsWith('{"status"')
+  );
+};
+
 export type LocalMediaItem = {
   name: string;
   path: string;
@@ -33,25 +89,26 @@ export type LocalMediaItem = {
   mtime: number;
 };
 
-// Directorios del dispositivo donde buscar música
+export type DownloadRemoteAudioOptions = {
+  expectedDurationSec?: number;
+};
+
+export type DownloadRemoteAudioResult = {
+  audioPath: string;
+  fileName: string;
+  sizeLabel?: string;
+  contentType?: string;
+  contentLength?: number;
+  detectedFormat?: string;
+};
+
+// Directorios del dispositivo donde buscar musica
 const DEVICE_AUDIO_DIRS = [
   RNFS.DownloadDirectoryPath,
   `${RNFS.ExternalStorageDirectoryPath}/Music`,
   `${RNFS.ExternalStorageDirectoryPath}/music`,
   `${RNFS.ExternalStorageDirectoryPath}/Download`,
 ];
-
-// Instancias públicas de Piped (alternative YouTube frontend, sin auth)
-// Si una falla, se intenta la siguiente
-const PIPED_INSTANCES = [
-  'https://pipedapi.kavin.rocks',
-  'https://piped-api.garudalinux.org',
-  'https://api.piped.yt',
-  'https://pipedapi.adminforge.de',
-];
-
-const extractVideoId = (url: string): string | null =>
-  url.match(/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/)?.[1] ?? null;
 
 export const localMediaService = {
   getAudivoxMusicDir: () => `${RNFS.DownloadDirectoryPath}/AudivoxMusic`,
@@ -97,7 +154,6 @@ export const localMediaService = {
     return { dir, audio, images, scannedAt: Date.now() };
   },
 
-  // Escanea carpetas del dispositivo (Downloads, Music) + AudivoxMusic
   scanDeviceMusic: async (): Promise<LocalMediaItem[]> => {
     const all: LocalMediaItem[] = [];
     for (const dir of DEVICE_AUDIO_DIRS) {
@@ -109,13 +165,11 @@ export const localMediaService = {
           .forEach(e => all.push(toMediaItem(e)));
       } catch {}
     }
-    // AudivoxMusic
     try {
       const scan = await localMediaService.scanAudivoxFolder();
       all.push(...scan.audio);
     } catch {}
 
-    // Deduplicar por path
     const seen = new Set<string>();
     return all
       .filter(item => !seen.has(item.path) && seen.add(item.path))
@@ -128,21 +182,61 @@ export const localMediaService = {
     preferredExt?: string,
     thumbnailUrl?: string,
     onProgress?: (pct: number) => void,
-  ): Promise<{ audioPath: string; fileName: string; sizeLabel?: string }> => {
+    options?: DownloadRemoteAudioOptions,
+  ): Promise<DownloadRemoteAudioResult> => {
+    if (!ensureHttpUrl(sourceUrl)) {
+      throw new Error('URL invalida: la fuente de audio debe usar http o https.');
+    }
+
     const dir = await localMediaService.ensureAudivoxFolder();
     const ext = normalizeAudioExtension(preferredExt);
     const baseName = sanitizeFilename(title) || `track_${Date.now()}`;
-    const fileName = `${baseName}.${ext}`;
-    const audioPath = `${dir}/${fileName}`;
+    const tempPath = `${dir}/${baseName}.part`;
 
-    onProgress?.(4);
+    onProgress?.(3);
+
+    let beginStatusCode = 0;
+    let beginContentLength = 0;
+    let beginContentType = '';
+    let beginError: string | null = null;
 
     const download = RNFS.downloadFile({
       fromUrl: sourceUrl,
-      toFile: audioPath,
+      toFile: tempPath,
       background: true,
       discretionary: true,
+      connectionTimeout: 15000,
+      readTimeout: 45000,
       progressInterval: 400,
+      begin: res => {
+        beginStatusCode = Number(res.statusCode || 0);
+        beginContentLength = Number(res.contentLength || 0);
+        const headers = normalizeHeaders(res.headers as Record<string, string>);
+        beginContentType = headers['content-type'] ?? '';
+
+        if (beginStatusCode < 200 || beginStatusCode >= 300) {
+          beginError = `Stream no compatible (HTTP ${beginStatusCode}).`;
+          RNFS.stopDownload(res.jobId);
+          return;
+        }
+
+        if (beginContentType && INVALID_CONTENT_TYPE_RE.test(beginContentType)) {
+          beginError = `Respuesta invalida: content-type ${beginContentType}.`;
+          RNFS.stopDownload(res.jobId);
+          return;
+        }
+
+        if (beginContentType && !AUDIO_CONTENT_TYPE_RE.test(beginContentType)) {
+          beginError = `Stream no compatible: content-type ${beginContentType}.`;
+          RNFS.stopDownload(res.jobId);
+          return;
+        }
+
+        if (beginContentLength > 0 && beginContentLength < MIN_CONTENT_LENGTH_BYTES) {
+          beginError = 'Archivo demasiado pequeno para ser audio valido.';
+          RNFS.stopDownload(res.jobId);
+        }
+      },
       progress: r => {
         if (r.contentLength > 0) {
           const pct = 5 + Math.floor((r.bytesWritten / r.contentLength) * 90);
@@ -151,21 +245,70 @@ export const localMediaService = {
       },
     });
 
-    const result = await download.promise;
+    const result = await download.promise.catch(() => {
+      throw new Error(beginError ?? 'Descarga interrumpida o stream no compatible.');
+    });
+
+    if (beginError) {
+      await RNFS.unlink(tempPath).catch(() => {});
+      throw new Error(beginError);
+    }
+
     if (result.statusCode < 200 || result.statusCode >= 300) {
-      await RNFS.unlink(audioPath).catch(() => {});
+      await RNFS.unlink(tempPath).catch(() => {});
       throw new Error(`Descarga fallida (HTTP ${result.statusCode}).`);
     }
 
-    const stat = await RNFS.stat(audioPath).catch(() => null);
-    if (!stat || Number(stat.size) < 4096) {
-      await RNFS.unlink(audioPath).catch(() => {});
-      throw new Error('El archivo descargado no contiene audio válido.');
+    const stat = await RNFS.stat(tempPath).catch(() => null);
+    const sizeInBytes = Number(stat?.size || 0);
+
+    if (!stat || sizeInBytes < MIN_AUDIO_BYTES) {
+      await RNFS.unlink(tempPath).catch(() => {});
+      throw new Error('Archivo corrupto: bytes insuficientes para audio valido.');
     }
 
-    const sizeLabel = `${(Number(stat.size) / 1024 / 1024).toFixed(1)} MB`;
+    if (beginContentLength > 0 && sizeInBytes < beginContentLength * 0.9) {
+      await RNFS.unlink(tempPath).catch(() => {});
+      throw new Error('Archivo truncado: la descarga termino incompleta.');
+    }
 
-    if (thumbnailUrl) {
+    if (options?.expectedDurationSec && options.expectedDurationSec > 20) {
+      const avgBytesPerSecond = sizeInBytes / options.expectedDurationSec;
+      if (avgBytesPerSecond < MIN_AVG_BYTES_PER_SECOND) {
+        await RNFS.unlink(tempPath).catch(() => {});
+        throw new Error(
+          'Archivo inconsistente con la duracion esperada. Posible stream parcial o conversion fallida.',
+        );
+      }
+    }
+
+    const headerChunk = await RNFS.read(tempPath, 64, 0, 'ascii').catch(() => '');
+    if (!headerChunk) {
+      await RNFS.unlink(tempPath).catch(() => {});
+      throw new Error('No se pudo leer el archivo descargado para validar su formato.');
+    }
+
+    if (looksLikeTextPayload(headerChunk)) {
+      await RNFS.unlink(tempPath).catch(() => {});
+      throw new Error('Respuesta invalida: se recibio texto/HTML en lugar de audio.');
+    }
+
+    const detectedFormat = detectAudioFormatFromHeader(headerChunk);
+    if (!detectedFormat) {
+      await RNFS.unlink(tempPath).catch(() => {});
+      throw new Error('Formato no reconocido: el stream no corresponde a audio soportado.');
+    }
+
+    const finalExt = detectedFormat || ext;
+    const finalFileName = `${baseName}.${finalExt}`;
+    const finalPath = `${dir}/${finalFileName}`;
+
+    if (await RNFS.exists(finalPath)) {
+      await RNFS.unlink(finalPath).catch(() => {});
+    }
+    await RNFS.moveFile(tempPath, finalPath);
+
+    if (thumbnailUrl && ensureHttpUrl(thumbnailUrl)) {
       const coverPath = `${dir}/${baseName}.jpg`;
       try {
         if (!(await RNFS.exists(coverPath))) {
@@ -175,136 +318,73 @@ export const localMediaService = {
     }
 
     onProgress?.(100);
-    return { audioPath, fileName, sizeLabel };
+
+    const sizeLabel = `${(sizeInBytes / 1024 / 1024).toFixed(1)} MB`;
+    return {
+      audioPath: finalPath,
+      fileName: finalFileName,
+      sizeLabel,
+      contentType: beginContentType || undefined,
+      contentLength: beginContentLength || undefined,
+      detectedFormat,
+    };
   },
 
-  // ── Descarga YouTube vía Piped API (open-source, sin autenticación) ────────
-  // Piped es un frontend alternativo de YouTube que devuelve URLs de stream directas.
-  // Prueba múltiples instancias públicas hasta conseguir una que funcione.
+  // Cliente preparado para arquitectura correcta de YouTube:
+  // app movil -> backend propio (conversion legal y controlada) -> URL de audio final
   downloadYouTubeAudio: async (
     youtubeUrl: string,
     title: string,
     format: ExternalDownloadFormat,
     thumbnailUrl?: string,
     onProgress?: (pct: number) => void,
-  ): Promise<{ audioPath: string; fileName: string; sizeLabel?: string }> => {
-    const dir = await localMediaService.ensureAudivoxFolder();
+  ): Promise<DownloadRemoteAudioResult> => {
+    const cleanUrl = youtubeUrl.trim();
 
-    // 1. Extraer video ID
-    const videoId = extractVideoId(youtubeUrl);
-    if (!videoId) throw new Error('URL de YouTube inválida. No se encontró el video ID.');
-
-    onProgress?.(2);
-
-    // 2. Pedir streams a Piped API
-    type PipedAudioStream = {
-      url: string;
-      mimeType: string;
-      bitrate: number;
-      quality?: string;
-    };
-    type PipedResponse = {
-      audioStreams?: PipedAudioStream[];
-      error?: string;
-      message?: string;
-    };
-
-    let audioUrl: string | null = null;
-    let audioMime = 'audio/mp4';
-    let lastError = 'Todas las instancias de Piped fallaron.';
-
-    for (const instance of PIPED_INSTANCES) {
-      try {
-        const res = await fetch(`${instance}/streams/${videoId}`, {
-          headers: { Accept: 'application/json' },
-        });
-        if (!res.ok) {
-          lastError = `Piped HTTP ${res.status} en ${instance}`;
-          continue;
-        }
-        const data: PipedResponse = await res.json();
-        if (data.error || data.message) {
-          lastError = data.error ?? data.message ?? 'Error Piped';
-          continue;
-        }
-
-        const streams = (data.audioStreams ?? []).filter(s =>
-          s.mimeType?.startsWith('audio/'),
-        );
-        if (streams.length === 0) { lastError = 'Sin streams de audio'; continue; }
-
-        // Elegir el de mayor bitrate (mejor calidad)
-        const best = streams.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
-        audioUrl = best.url;
-        audioMime = best.mimeType ?? 'audio/mp4';
-        break;
-      } catch (e) {
-        lastError = e instanceof Error ? e.message : String(e);
-      }
+    if (!YOUTUBE_URL_RE.test(cleanUrl)) {
+      throw new Error('URL invalida de YouTube.');
     }
 
-    if (!audioUrl) {
-      throw new Error(`No se pudo obtener el audio: ${lastError}`);
+    if (!YOUTUBE_CONVERTER_ENDPOINT) {
+      throw new Error(
+        'YouTube requiere backend de conversion. Configura YOUTUBE_CONVERTER_ENDPOINT y consume ese servicio.',
+      );
     }
 
-    // 3. Determinar extensión real por mimeType
-    const realExt = audioMime.includes('opus') ? 'opus'
-      : audioMime.includes('webm') ? 'webm'
-      : audioMime.includes('ogg') ? 'ogg'
-      : 'm4a'; // mp4 container → .m4a
-
-    const name = sanitizeFilename(title) || `track_${Date.now()}`;
-    const audioPath = `${dir}/${name}.${realExt}`;
-
-    onProgress?.(10);
-
-    // 4. Descargar con progreso real
-    const dlTask = RNFS.downloadFile({
-      fromUrl: audioUrl,
-      toFile: audioPath,
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/91.0.4472.120',
-        'Accept': '*/*',
-        'Origin': 'https://piped.video',
-        'Referer': 'https://piped.video/',
-      },
-      progressInterval: 500,
-      progress: r => {
-        if (r.contentLength > 0) {
-          onProgress?.(10 + Math.floor((r.bytesWritten / r.contentLength) * 85));
-        }
-      },
+    const response = await fetch(YOUTUBE_CONVERTER_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: cleanUrl, format }),
     });
 
-    const result = await dlTask.promise;
-
-    if (result.statusCode < 200 || result.statusCode >= 300) {
-      await RNFS.unlink(audioPath).catch(() => {});
-      throw new Error(`Descarga fallida (HTTP ${result.statusCode}). Intenta otra URL.`);
+    if (!response.ok) {
+      throw new Error(`Conversion fallida en backend (HTTP ${response.status}).`);
     }
 
-    // Verificar que el archivo tiene contenido real
-    const stat = await RNFS.stat(audioPath).catch(() => null);
-    if (!stat || Number(stat.size) < 4096) {
-      await RNFS.unlink(audioPath).catch(() => {});
-      throw new Error('El archivo descargado está vacío. Puede que la URL haya expirado.');
+    const payload = (await response.json()) as {
+      audioUrl?: string;
+      title?: string;
+      thumbnailUrl?: string;
+      fileExt?: string;
+      durationSec?: number;
+      error?: string;
+    };
+
+    if (payload.error) {
+      throw new Error(`Conversion fallida: ${payload.error}`);
     }
 
-    const sizeLabel = `${(Number(stat.size) / 1024 / 1024).toFixed(1)} MB`;
-    onProgress?.(98);
-
-    // 5. Guardar portada si viene thumbnail
-    if (thumbnailUrl) {
-      const coverPath = `${dir}/${name}.jpg`;
-      try {
-        if (!(await RNFS.exists(coverPath))) {
-          await RNFS.downloadFile({ fromUrl: thumbnailUrl, toFile: coverPath }).promise;
-        }
-      } catch { /* no crítico */ }
+    if (!payload.audioUrl || !ensureHttpUrl(payload.audioUrl)) {
+      throw new Error('Backend invalido: no devolvio una URL de audio valida.');
     }
 
-    onProgress?.(100);
-    return { audioPath, fileName: `${name}.${realExt}`, sizeLabel };
+    return localMediaService.downloadRemoteAudio(
+      payload.audioUrl,
+      payload.title ?? title,
+      payload.fileExt ?? format,
+      payload.thumbnailUrl ?? thumbnailUrl,
+      onProgress,
+      { expectedDurationSec: payload.durationSec },
+    );
   },
 };

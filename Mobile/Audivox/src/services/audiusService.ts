@@ -18,6 +18,16 @@ const pickArtwork = (artwork?: Record<string, string> | null) => {
   return artwork['480x480'] ?? artwork['150x150'] ?? artwork['1000x1000'];
 };
 
+// Construye el URL de stream directo de Audius.
+// Si la respuesta ya trae stream.url (CDN directo), lo usa; si no, construye
+// el endpoint oficial que redirige (302) al CDN correcto.
+const buildStreamUrl = (track: RawTrack): string => {
+  if (track.stream?.url) return track.stream.url;
+  const rawId = track.id ?? String(track.track_id ?? '');
+  if (!rawId) return '';
+  return `${AUDIUS_API_BASE}/tracks/${rawId}/stream?app_name=${AUDIUS_APP_NAME}`;
+};
+
 export type AudiusTrackResult = {
   id: string;
   title: string;
@@ -48,21 +58,29 @@ type RawTrack = {
 type AudiusListResponse = { data?: RawTrack[] };
 
 const mapTrack = (track: RawTrack): AudiusTrackResult => ({
-  id: String(track.id ?? track.track_id ?? track.title ?? Math.random()),
+  id: String(track.id ?? track.track_id ?? ''),
   title: track.title ?? 'Sin título',
   artistName: track.user?.name ?? 'Artista desconocido',
   artworkUrl: pickArtwork(track.artwork),
   duration: track.duration ?? 0,
   genre: track.genre ?? undefined,
-  streamUrl: track.stream?.url ?? '',
+  streamUrl: buildStreamUrl(track),
   originalFileName: track.orig_filename ?? undefined,
   format: normalizeFormat(track.orig_filename?.split('.').pop()),
   isDownloadable: Boolean(track.is_downloadable),
 });
 
+// Tracks con ID y title válidos + streamable. No exigir is_downloadable
+// (hay tracks legítimos que son streamable pero no descargables).
+const isValidTrack = (t: RawTrack) =>
+  t.is_streamable &&
+  (t.id || t.track_id) &&
+  t.title &&
+  t.title.trim().length > 0;
+
 export const audiusService = {
   // Buscar pistas por nombre o artista
-  async searchTracks(query: string, limit = 8): Promise<AudiusTrackResult[]> {
+  async searchTracks(query: string, limit = 20): Promise<AudiusTrackResult[]> {
     const cleanQuery = query.trim();
     if (!cleanQuery) return [];
 
@@ -77,12 +95,14 @@ export const audiusService = {
 
     const payload = (await res.json()) as AudiusListResponse;
     return (payload.data ?? [])
-      .filter(t => t.is_streamable && t.is_downloadable && t.stream?.url && t.title)
-      .map(mapTrack);
+      .filter(isValidTrack)
+      .slice(0, limit)
+      .map(mapTrack)
+      .filter(t => t.id && t.streamUrl);
   },
 
   // Top tendencias globales (o por género)
-  async getTrending(limit = 10, genre?: string): Promise<AudiusTrackResult[]> {
+  async getTrending(limit = 15, genre?: string): Promise<AudiusTrackResult[]> {
     const params = new URLSearchParams({
       limit: String(limit),
       app_name: AUDIUS_APP_NAME,
@@ -94,8 +114,9 @@ export const audiusService = {
 
     const payload = (await res.json()) as AudiusListResponse;
     return (payload.data ?? [])
-      .filter(t => t.is_streamable && t.stream?.url && t.title)
+      .filter(isValidTrack)
       .slice(0, limit)
-      .map(mapTrack);
+      .map(mapTrack)
+      .filter(t => t.id && t.streamUrl);
   },
 };

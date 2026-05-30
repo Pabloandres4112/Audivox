@@ -737,4 +737,200 @@ export const styles = StyleSheet.create({
   queueCover: { width: 42, height: 42, borderRadius: 12 },
   queueItemTitle: { color: theme.colors.text, fontWeight: '800' },
   queueSub: { color: theme.colors.textMuted, fontSize: 12 },
+
+  // ── Search Screen ──────────────────────────────────────────────────────────
+
+  searchBarRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    backgroundColor: theme.colors.surfaceRaised,
+    borderWidth: 1,
+    borderColor: theme.colors.borderSoft,
+    borderRadius: 18,
+    gap: 4,
+  },
+  searchBarInput: {
+    flex: 1,
+    paddingVertical: 13,
+    paddingHorizontal: 8,
+    color: theme.colors.text,
+    fontSize: 15,
+  },
+  searchTrackCard: {
+    borderRadius: 16,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.borderSoft,
+    overflow: 'hidden' as const,
+  },
+  searchTrackMain: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+    padding: 12,
+  },
+  searchTrackArt: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: theme.colors.surfaceRaised,
+  },
+  searchTrackArtFallback: {
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  searchTrackTitle: {
+    color: theme.colors.text,
+    fontWeight: '700' as const,
+    fontSize: 14,
+  },
+  searchTrackMeta: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+  },
+  searchTrackGenre: {
+    color: theme.colors.primary,
+    fontSize: 10,
+    fontWeight: '700' as const,
+  },
+  searchDownloadBtn: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 5,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.borderSoft,
+    backgroundColor: theme.colors.surfaceRaised,
+  },
+  searchDownloadBtnText: {
+    color: theme.colors.primary,
+    fontSize: 11,
+    fontWeight: '800' as const,
+  },
+  searchStateBlock: {
+    alignItems: 'center' as const,
+    padding: 32,
+    gap: 10,
+  },
+  searchStateTitle: {
+    color: theme.colors.text,
+    fontSize: 18,
+    fontWeight: '800' as const,
+  },
+  searchStateSub: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    textAlign: 'center' as const,
+  },
+
+  // ── Genre Cards (Search) ───────────────────────────────────────────────────
+
+  genreGrid: {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+  },
+  genreCard: {
+    width: '47.5%',
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1.5,
+    borderColor: theme.colors.borderSoft,
+    gap: 8,
+    alignItems: 'flex-start' as const,
+  },
+  genreIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  genreLabel: {
+    color: theme.colors.text,
+    fontWeight: '800' as const,
+    fontSize: 13,
+  },
+
+  // ── Genre Chips (Home) ─────────────────────────────────────────────────────
+
+  genreChipsRow: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  genreChip: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.borderSoft,
+  },
+  genreChipActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  genreChipText: {
+    color: theme.colors.textMuted,
+    fontWeight: '700' as const,
+    fontSize: 12,
+  },
+  genreChipTextActive: {
+    color: theme.colors.background,
+  },
+
+  // ── Audius credit badge ────────────────────────────────────────────────────
+
+  audiusCredit: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: theme.radius.pill,
+    backgroundColor: 'rgba(83, 214, 196, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(83, 214, 196, 0.3)',
+  },
+  audiusCreditText: {
+    color: theme.colors.primary,
+    fontSize: 10,
+    fontWeight: '800' as const,
+  },
+
+  // ── Downloads CTA (Downloads Screen) ─────────────────────────────────────
+
+  searchCta: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.primary + '55',
+  },
+  searchCtaIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: 'rgba(83, 214, 196, 0.12)',
+  },
+  searchCtaTitle: {
+    color: theme.colors.text,
+    fontWeight: '800' as const,
+    fontSize: 14,
+  },
+  searchCtaSub: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+  },
 });

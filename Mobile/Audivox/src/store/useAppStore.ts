@@ -4,6 +4,18 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { songs } from '../services/mockData';
 import { Song } from '../types/music';
 
+// Track reproducido recientemente (Audius o local). Se guarda en el store para
+// que LibraryScreen pueda mostrar historial real sin depender de mockData.
+export type RecentTrack = {
+  id: string;
+  title: string;
+  artistName: string;
+  artworkUrl?: string;
+  duration: number;
+  genre?: string;
+  streamUrl: string;
+};
+
 type Profile = { name: string; email?: string; isGuest: boolean };
 export type ExternalDownloadFormat = 'mp3' | 'm4a' | 'mp4' | 'wav';
 export type ExternalDownloadStatus =
@@ -16,7 +28,12 @@ export interface ExternalDownload {
   url: string;
   title: string;
   thumbnailUrl?: string;
+  sourceType?: 'audius' | 'youtube-backend' | 'direct-url';
   format: ExternalDownloadFormat;
+  detectedFormat?: string;
+  contentType?: string;
+  contentLength?: number;
+  expectedDurationSec?: number;
   status: ExternalDownloadStatus;
   progress: number;
   createdAt: number;
@@ -33,6 +50,7 @@ interface AppState {
   likedIds: string[];
   downloadedIds: string[];
   recentIds: string[];
+  recentlyPlayedTracks: RecentTrack[];
   externalDownloads: ExternalDownload[];
   downloadHistory: ExternalDownload[];
   completeOnboarding: () => void;
@@ -41,6 +59,7 @@ interface AppState {
   toggleLike: (id: string) => void;
   toggleDownload: (id: string) => void;
   markRecent: (id: string) => void;
+  addRecentTrack: (track: RecentTrack) => void;
   likedSongs: () => Song[];
   setModePreference: (mode: 'online' | 'offline') => void;
   setConnected: (connected: boolean) => void;
@@ -64,6 +83,7 @@ export const useAppStore = create<AppState>()(
       likedIds: [],
       downloadedIds: [],
       recentIds: [],
+      recentlyPlayedTracks: [],
       externalDownloads: [],
       downloadHistory: [],
       completeOnboarding: () => set({ onboardingDone: true }),
@@ -84,6 +104,13 @@ export const useAppStore = create<AppState>()(
       markRecent: id =>
         set(s => ({
           recentIds: [id, ...s.recentIds.filter(x => x !== id)].slice(0, 20),
+        })),
+      addRecentTrack: track =>
+        set(s => ({
+          recentlyPlayedTracks: [
+            track,
+            ...s.recentlyPlayedTracks.filter(t => t.id !== track.id),
+          ].slice(0, 30),
         })),
       likedSongs: () => songs.filter(s => get().likedIds.includes(s.id)),
       setModePreference: mode => set({ modePreference: mode }),
@@ -132,6 +159,7 @@ export const useAppStore = create<AppState>()(
         likedIds: s.likedIds,
         downloadedIds: s.downloadedIds,
         recentIds: s.recentIds,
+        recentlyPlayedTracks: s.recentlyPlayedTracks,
         externalDownloads: s.externalDownloads,
         downloadHistory: s.downloadHistory,
       }),
