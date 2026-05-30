@@ -18,6 +18,10 @@ const YOUTUBE_URL_RE = /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.b
 // https://tu-backend.com/api/youtube/convert
 const YOUTUBE_CONVERTER_ENDPOINT = '';
 
+// Cloudflare Worker que proxea Piped API — despliega cloudflare-worker/yt-proxy.js
+// y pega aquí la URL (ej: https://audivox-yt.TU-USUARIO.workers.dev)
+const AUDIVOX_WORKER_URL = '';
+
 const hasExt = (name: string, exts: string[]) =>
   exts.some(ext => name.toLowerCase().endsWith(ext));
 
@@ -333,6 +337,11 @@ export const localMediaService = {
     };
   },
 
+  // Elimina cualquier archivo local por ruta completa (archivos escaneados del dispositivo).
+  deleteLocalFile: async (filePath: string): Promise<void> => {
+    if (await RNFS.exists(filePath)) await RNFS.unlink(filePath);
+  },
+
   // Elimina un archivo descargado de la carpeta AudivoxMusic (uso personal).
   // La eliminación falla silenciosamente si el archivo no existe.
   unlinkDownloadedFile: async (fileName: string): Promise<void> => {
@@ -348,156 +357,348 @@ export const localMediaService = {
     }
   },
 
-  // ─── Descarga vía Invidious/Piped (uso personal, sin backend) ────────────
-  // Estrategia de 2 niveles:
-  //   1. Invidious → resuelve la URL directa de CDN de Google (sin Cloudflare).
-  //   2. Piped (instancias sin Cloudflare) como fallback.
-  // Solo para uso personal en tu propio dispositivo.
+  // ─── Descarga de YouTube — múltiples métodos en paralelo ───────────────
+  // M1: YouTube InnerTube API (4 clientes distintos) — APIs oficiales de YouTube
+  // M2: cobalt.tools (servicio dedicado, mantenido activamente)
+  // M3: Invidious (instancias comunitarias de respaldo)
+  // Todo en paralelo — gana el primero que responda correctamente.
   downloadViaPiped: async (
     youtubeUrl: string,
     onProgress?: (pct: number) => void,
   ): Promise<DownloadRemoteAudioResult & { title: string }> => {
-    // Instancias Invidious — no usan Cloudflare, devuelven URLs directas de Google CDN
-    const INVIDIOUS_INSTANCES = [
-      'https://invidious.fdn.fr',
-      'https://yt.artemislena.eu',
+
+    // Invidious — instancias con mejor historial de uptime (2025-2026)
+    const INV = [
       'https://invidious.privacydev.net',
-      'https://inv.riverside.rocks',
-      'https://invidious.nerdvpn.de',
-      'https://invidious.slipfox.xyz',
+      'https://inv.nadeko.net',
+      'https://yt.artemislena.eu',
+      'https://invidious.io.lol',
+      'https://iv.datura.network',
+      'https://invidious.protokolla.fi',
+      'https://inv.vern.cc',
     ];
 
-    // Instancias Piped sin Cloudflare (evitar kavin.rocks, api.piped.yt)
-    const PIPED_INSTANCES = [
-      'https://pipedapi.eu.projectsegfau.lt',
-      'https://pipedapi.in.projectsegfau.lt',
-      'https://pipedapi.tokhmi.xyz',
-      'https://piped-api.garudalinux.org',
+    // Piped — frontend alternativo de YouTube, muy activo y con buena disponibilidad
+    const PIPED = [
+      'https://pipedapi.kavin.rocks',
+      'https://api.piped.yt',
       'https://pipedapi.adminforge.de',
+      'https://pipedapi.darkness.services',
+      'https://piped-api.garudalinux.org',
     ];
 
-    const extractVideoId = (url: string): string | null =>
+    const extractId = (url: string): string | null =>
       url.match(/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/)?.[1] ?? null;
 
-    const videoId = extractVideoId(youtubeUrl.trim());
-    if (!videoId) throw new Error('URL de YouTube inválida. No se encontró el video ID.');
+    const videoId = extractId(youtubeUrl.trim());
+    if (!videoId) throw new Error('URL de YouTube inválida. Copia el link completo del video.');
 
-    onProgress?.(2);
+    onProgress?.(3);
 
-    const BROWSER_HEADERS = {
-      'Accept': 'application/json',
-      'Accept-Language': 'es-419,es;q=0.9,en;q=0.8',
+    const HDRS = {
+      Accept: 'application/json',
+      'Accept-Language': 'es-419,es;q=0.9',
       'User-Agent':
         'Mozilla/5.0 (Linux; Android 13; SM-A536B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
     };
+    const TIMEOUT = 9000;
 
-    type InvFormat = {
-      url?: string;
-      type?: string;
-      container?: string;
-      itag?: string;
-      bitrate?: number;
-    };
-    type InvData = { title?: string; adaptiveFormats?: InvFormat[] };
+    type InvFmt = { url?: string; type?: string; container?: string; bitrate?: number };
+    type InvData = { title?: string; adaptiveFormats?: InvFmt[] };
+    type PipedStream = { url: string; mimeType?: string; bitrate?: number; quality?: string };
+    type PipedData = { title?: string; audioStreams?: PipedStream[]; error?: string; message?: string };
+    type Hit = { audioUrl: string; title: string };
 
-    type PipedStream = { url: string; mimeType: string; bitrate: number };
-    type PipedData = {
-      title?: string;
-      audioStreams?: PipedStream[];
-      error?: string;
-      message?: string;
-    };
+    // Obtiene el primer resultado válido ejecutando todas las tareas en paralelo
+    const raceFirst = (tasks: Array<() => Promise<Hit | null>>): Promise<Hit | null> =>
+      new Promise(resolve => {
+        let remaining = tasks.length;
+        let done = false;
+        tasks.forEach(t =>
+          t()
+            .then(r => {
+              remaining--;
+              if (r && !done) { done = true; resolve(r); }
+              else if (remaining === 0 && !done) resolve(null);
+            })
+            .catch(() => {
+              remaining--;
+              if (remaining === 0 && !done) resolve(null);
+            }),
+        );
+      });
 
-    let audioUrl: string | null = null;
-    let audioTitle = `yt_${videoId}`;
-    let lastError = 'Todos los servidores fallaron.';
+    const TAG = '[YT-DL]';
 
-    const fetchJson = async <T>(url: string, timeoutMs = 10_000): Promise<T | null> => {
+    const fetchJson = async <T>(url: string, label: string): Promise<T | null> => {
       const ctrl = new AbortController();
-      const id = setTimeout(() => ctrl.abort(), timeoutMs);
+      const id = setTimeout(() => ctrl.abort(), TIMEOUT);
+      const t0 = Date.now();
       try {
-        const res = await fetch(url, { headers: BROWSER_HEADERS, signal: ctrl.signal });
-        if (!res.ok) return null;
-        return (await res.json()) as T;
-      } catch {
+        console.log(`${TAG} → ${label}`);
+        const res = await fetch(url, { headers: HDRS, signal: ctrl.signal });
+        if (!res.ok) {
+          console.warn(`${TAG} ✗ ${label} HTTP ${res.status} (${Date.now() - t0}ms)`);
+          return null;
+        }
+        const j = await res.json();
+        if (typeof j !== 'object' || j === null) {
+          console.warn(`${TAG} ✗ ${label} respuesta no-JSON (${Date.now() - t0}ms)`);
+          return null;
+        }
+        console.log(`${TAG} ✓ ${label} OK (${Date.now() - t0}ms)`);
+        return j as T;
+      } catch (e) {
+        const reason = (e instanceof Error && e.name === 'AbortError') ? 'timeout' : String(e);
+        console.warn(`${TAG} ✗ ${label} ERROR: ${reason} (${Date.now() - t0}ms)`);
         return null;
       } finally {
         clearTimeout(id);
       }
     };
 
-    // ── Nivel 1: Invidious (URLs directas de Google CDN — máxima compatibilidad) ──
-    for (const instance of INVIDIOUS_INSTANCES) {
-      const data = await fetchJson<InvData>(
-        `${instance}/api/v1/videos/${videoId}?fields=title,adaptiveFormats`,
-      );
-      if (!data) continue;
-
-      const formats = (data.adaptiveFormats ?? []).filter(
-        f => f.url && (f.type?.startsWith('audio/') || f.container),
-      );
-
-      // Preferir m4a (itag 140/141) — compatible con Android MediaPlayer sin codecs externos
-      const m4a = formats.find(
-        f => f.container === 'm4a' || f.type?.includes('audio/mp4'),
-      );
-      const chosen = m4a ?? formats[0];
-
-      if (chosen?.url) {
-        audioUrl = chosen.url;
-        if (data.title) audioTitle = data.title;
-        lastError = '';
-        break;
-      }
-      lastError = `Invidious ${instance}: sin formatos de audio`;
-    }
-
-    // ── Nivel 2: Piped (sin Cloudflare) ──────────────────────────────────────
-    if (!audioUrl) {
-      for (const instance of PIPED_INSTANCES) {
-        const data = await fetchJson<PipedData>(`${instance}/streams/${videoId}`);
-        if (!data) continue;
-        if (data.error || data.message) {
-          lastError = data.error ?? data.message ?? 'Piped error';
-          continue;
-        }
-
-        const streams = (data.audioStreams ?? []).filter(s => s.mimeType?.startsWith('audio/'));
-        if (!streams.length) { lastError = `Piped ${instance}: sin streams`; continue; }
-
-        const m4aStreams = streams.filter(
-          s => s.mimeType.includes('mp4') || s.mimeType.includes('m4a'),
+    // ── M1: YouTube InnerTube API — múltiples clientes en paralelo ───────
+    // Cada "cliente" es una identidad diferente que YouTube acepta.
+    // Se prueban en paralelo — el primero con streams directos (sin cipher) gana.
+    // El API key es el de la app oficial de YouTube y está en el APK público.
+    const tryYtClient = async (
+      name: string,
+      apiKey: string,
+      clientName: string,
+      clientVersion: string,
+      extraClient: Record<string, unknown> = {},
+      extraHeaders: Record<string, string> = {},
+    ): Promise<Hit | null> => {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 12000);
+      const t0 = Date.now();
+      try {
+        console.log(`${TAG} → YouTube/${name}`);
+        const res = await fetch(
+          `https://www.youtube.com/youtubei/v1/player?key=${apiKey}&prettyPrint=false`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Origin': 'https://www.youtube.com',
+              ...extraHeaders,
+            },
+            body: JSON.stringify({
+              videoId,
+              context: { client: { clientName, clientVersion, hl: 'es', gl: 'CO', ...extraClient } },
+              racyCheckOk: true,
+              contentCheckOk: true,
+            }),
+            signal: ctrl.signal,
+          },
         );
-        const best =
-          m4aStreams.length > 0
-            ? m4aStreams.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0]
-            : streams.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+        if (!res.ok) {
+          console.warn(`${TAG} ✗ YouTube/${name} HTTP ${res.status} (${Date.now() - t0}ms)`);
+          return null;
+        }
+        const data = await res.json();
+        if (data.playabilityStatus?.status !== 'OK') {
+          console.warn(`${TAG} ✗ YouTube/${name} playability=${data.playabilityStatus?.status}`);
+          return null;
+        }
+        const allFmts: any[] = data.streamingData?.adaptiveFormats ?? [];
+        // Solo streams con URL directa — los cifrados (signatureCipher) no se pueden usar sin JS
+        const direct = allFmts.filter(f => f.mimeType?.startsWith('audio/') && f.url && !f.signatureCipher);
+        console.log(`${TAG} YouTube/${name}: ${direct.length} streams directos (${Date.now() - t0}ms)`);
+        if (!direct.length) {
+          console.warn(`${TAG} ✗ YouTube/${name}: cifrado, no se puede usar sin decriptor`);
+          return null;
+        }
+        const m4a = direct.find((f: any) => f.itag === 140 || f.mimeType?.includes('audio/mp4'));
+        const chosen = m4a ?? direct.sort((a: any, b: any) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+        const ytTitle = data.videoDetails?.title ?? `yt_${videoId}`;
+        console.log(`${TAG} ✓ YouTube/${name} → itag=${chosen.itag} ${chosen.bitrate}bps`);
+        return { audioUrl: chosen.url, title: ytTitle };
+      } catch (e) {
+        const r = e instanceof Error && e.name === 'AbortError' ? 'timeout' : String(e);
+        console.warn(`${TAG} ✗ YouTube/${name} ERROR: ${r} (${Date.now() - t0}ms)`);
+        return null;
+      } finally { clearTimeout(tid); }
+    };
 
-        audioUrl = best.url;
-        if (data.title) audioTitle = data.title;
-        lastError = '';
-        break;
-      }
-    }
+    // 6 clientes YouTube en paralelo — versiones actualizadas 2025
+    const ytTasks = [
+      // ANDROID_TESTSUITE — cliente de pruebas, frecuentemente retorna streams sin cifrar
+      () => tryYtClient('ANDROID_TEST', 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', 'ANDROID_TESTSUITE', '1.9',
+        { androidSdkVersion: 30 },
+        { 'User-Agent': 'com.google.android.youtube/1.9 (Linux; U; Android 11) gzip', 'X-YouTube-Client-Name': '30' }),
+      // ANDROID — app oficial YouTube
+      () => tryYtClient('ANDROID', 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', 'ANDROID', '19.29.34',
+        { androidSdkVersion: 34 },
+        { 'User-Agent': 'com.google.android.youtube/19.29.34 (Linux; U; Android 14) gzip', 'X-YouTube-Client-Name': '3' }),
+      // IOS — cliente iOS de YouTube
+      () => tryYtClient('IOS', 'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc', 'IOS', '19.29.1',
+        { deviceMake: 'Apple', deviceModel: 'iPhone16,2', osName: 'iPhone', osVersion: '17.5.1.21F90' },
+        { 'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)', 'X-YouTube-Client-Name': '5' }),
+      // TV_SIMPLY_EMBEDDED — cliente TV embebido, sin restricciones de cifrado frecuentemente
+      () => tryYtClient('TV_EMBEDDED', 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', 'TVHTML5_SIMPLY_EMBEDDED_PLAYER', '2.0',
+        {}, { 'X-YouTube-Client-Name': '85' }),
+      // TV — cliente para Smart TV
+      () => tryYtClient('TV', 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', 'TVHTML5', '7.20220325',
+        {}, { 'X-YouTube-Client-Name': '7' }),
+      // ANDROID_MUSIC — app YouTube Music
+      () => tryYtClient('MUSIC', 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-NKMD3G5eQ', 'ANDROID_MUSIC', '5.28.1',
+        { androidSdkVersion: 30 },
+        { 'User-Agent': 'com.google.android.apps.youtube.music/5.28.1 (Linux; U; Android 11) gzip', 'X-YouTube-Client-Name': '21' }),
+    ];
 
-    if (!audioUrl) {
+    const pickAudio = (formats: InvFmt[], source: string): string | null => {
+      const valid = formats.filter(f => f.url && (f.type?.startsWith('audio/') || f.container));
+      console.log(`${TAG} formatos de audio en ${source}: ${valid.length}`);
+      valid.forEach(f => console.log(`  · ${f.container ?? f.type} ${f.bitrate ?? '?'}bps`));
+      const m4a = valid.find(f => f.container === 'm4a' || f.type?.includes('audio/mp4'));
+      const chosen = m4a ?? valid.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+      if (chosen?.url) console.log(`${TAG} formato elegido: ${chosen.container ?? chosen.type}`);
+      return chosen?.url ?? null;
+    };
+
+    // ── Título desde YouTube oEmbed (oficial, muy confiable) ──────────────
+    const getTitle = async (): Promise<string> => {
+      try {
+        const res = await fetch(
+          `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
+          { headers: { Accept: 'application/json' } },
+        );
+        if (!res.ok) return `yt_${videoId}`;
+        const d = await res.json();
+        if (d.title) console.log(`${TAG} título oEmbed: "${d.title}"`);
+        return d.title ?? `yt_${videoId}`;
+      } catch { return `yt_${videoId}`; }
+    };
+
+    // ── M2: cobalt.tools — formato corregido, múltiples variantes ────────
+    const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const tryCobaltInstance = async (
+      endpoint: string,
+      body: Record<string, unknown>,
+      label: string,
+    ): Promise<Hit | null> => {
+      const ctrl = new AbortController();
+      const id = setTimeout(() => ctrl.abort(), 15000);
+      const t0 = Date.now();
+      try {
+        console.log(`${TAG} → ${label}`);
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) {
+          console.warn(`${TAG} ✗ ${label} HTTP ${res.status} (${Date.now() - t0}ms)`);
+          return null;
+        }
+        const d = await res.json();
+        console.log(`${TAG} ${label} status="${d.status}" (${Date.now() - t0}ms)`);
+        const url = d.url ?? d.audio ?? null;
+        if (url && ['redirect', 'tunnel', 'stream'].includes(d.status ?? '')) {
+          console.log(`${TAG} ✓ ${label} OK`);
+          return { audioUrl: url, title: `yt_${videoId}` };
+        }
+        console.warn(`${TAG} ✗ ${label}: sin URL (status=${d.status}, error=${d.error?.code})`);
+        return null;
+      } catch (e) {
+        const r = e instanceof Error && e.name === 'AbortError' ? 'timeout' : String(e);
+        console.warn(`${TAG} ✗ ${label} ERROR: ${r} (${Date.now() - t0}ms)`);
+        return null;
+      } finally { clearTimeout(id); }
+    };
+
+    const cobaltTasks = [
+      // Solo URL — request mínimo
+      () => tryCobaltInstance('https://api.cobalt.tools/', { url: ytUrl }, 'cobalt/v10-minimal'),
+      // Modo audio explícito con mp3 (el más compatible entre versiones de cobalt)
+      () => tryCobaltInstance('https://api.cobalt.tools/', { url: ytUrl, downloadMode: 'audio', audioFormat: 'mp3', audioBitrate: '128' }, 'cobalt/v10-mp3'),
+      // Instancia comunitaria alternativa
+      () => tryCobaltInstance('https://cobalt.tools/', { url: ytUrl, downloadMode: 'audio' }, 'cobalt/main-audio'),
+    ];
+
+    // ── M0: Cloudflare Worker (proxy propio — más confiable que acceso directo) ─
+    const tryWorker = async (): Promise<Hit | null> => {
+      if (!AUDIVOX_WORKER_URL) return null;
+      const d = await fetchJson<PipedData>(`${AUDIVOX_WORKER_URL}/${videoId}`, 'CF-Worker');
+      if (!d || d.error || !d.audioStreams?.length) return null;
+      const m4a = d.audioStreams.find(s => s.mimeType?.includes('audio/mp4'));
+      const chosen = m4a ?? [...d.audioStreams].sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+      return chosen?.url ? { audioUrl: chosen.url, title: d.title ?? `yt_${videoId}` } : null;
+    };
+    const workerTasks = AUDIVOX_WORKER_URL ? [tryWorker] : [];
+
+    // ── M3: Piped — frontend alternativo de YouTube con buena disponibilidad ─
+    const tryPiped = async (baseUrl: string): Promise<Hit | null> => {
+      const host = baseUrl.replace('https://', '');
+      const d = await fetchJson<PipedData>(`${baseUrl}/streams/${videoId}`, `Piped(${host})`);
+      if (!d || d.error || !d.audioStreams?.length) return null;
+      const m4a = d.audioStreams.find(s => s.mimeType?.includes('audio/mp4'));
+      const chosen = m4a ?? [...d.audioStreams].sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+      return chosen?.url ? { audioUrl: chosen.url, title: d.title ?? `yt_${videoId}` } : null;
+    };
+    const pipedTasks = PIPED.map(inst => () => tryPiped(inst));
+
+    // ── M4: Invidious ──────────────────────────────────────────────────────
+    const invTasks = INV.map(inst => async (): Promise<Hit | null> => {
+      const host = inst.replace('https://', '');
+      const d = await fetchJson<InvData>(
+        `${inst}/api/v1/videos/${videoId}?fields=title,adaptiveFormats`,
+        `Invidious(${host})`,
+      );
+      const url = d ? pickAudio(d.adaptiveFormats ?? [], host) : null;
+      return url ? { audioUrl: url, title: d?.title ?? `yt_${videoId}` } : null;
+    });
+
+    onProgress?.(6);
+
+    console.log(
+      `${TAG} videoId=${videoId} → ${workerTasks.length} Worker + ${ytTasks.length} YT-clientes + ${cobaltTasks.length} cobalt + ${pipedTasks.length} Piped + ${INV.length} Invidious`,
+    );
+    const raceStart = Date.now();
+
+    // Todos los métodos al mismo tiempo — gana el primero
+    const [title, hit] = await Promise.all([
+      getTitle(),
+      raceFirst([...workerTasks, ...ytTasks, ...cobaltTasks, ...pipedTasks, ...invTasks]),
+    ]);
+
+    if (!hit) {
+      console.error(`${TAG} TODOS los servidores fallaron tras ${Date.now() - raceStart}ms`);
       throw new Error(
-        `No se pudo obtener el audio. ${lastError}\n` +
-          'Verifica tu conexión o intenta más tarde.',
+        'No se pudo obtener el audio del video.\n' +
+        'Todos los servidores de extracción están caídos en este momento.\n' +
+        'Intenta de nuevo en unos minutos.',
       );
     }
 
+    // Usa el título de oEmbed si lo tenemos (más preciso que el de Invidious/Piped)
+    const finalTitle = (title && title !== `yt_${videoId}`) ? title : hit.title;
+
+    console.log(`${TAG} ✓ audio obtenido en ${Date.now() - raceStart}ms`);
+    console.log(`${TAG} título: "${finalTitle}"`);
+    console.log(`${TAG} URL: ${hit.audioUrl.slice(0, 90)}...`);
     onProgress?.(10);
 
+    console.log(`${TAG} iniciando descarga del archivo...`);
     const result = await localMediaService.downloadRemoteAudio(
-      audioUrl,
-      audioTitle,
+      hit.audioUrl,
+      finalTitle,
       'm4a',
       undefined,
-      p => onProgress?.(10 + Math.floor(p * 0.88)),
+      p => {
+        onProgress?.(10 + Math.floor(p * 0.88));
+        if (p % 20 === 0) console.log(`${TAG} descarga: ${p}%`);
+      },
     );
 
-    return { ...result, title: audioTitle };
+    console.log(`${TAG} ✅ descarga completa → ${result.fileName} (${result.sizeLabel})`);
+    return { ...result, title: finalTitle };
   },
 
   // Cliente preparado para arquitectura correcta de YouTube:

@@ -504,43 +504,66 @@ export const DownloadsScreen = () => {
         <Icon name="chevron-forward-outline" size={18} color={theme.colors.textMuted} />
       </Pressable>
 
-      {/* ── Descarga por URL de YouTube (Piped, uso personal) ── */}
-      <View style={styles.downloaderCard}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Icon name="logo-youtube" size={16} color="#FF4444" />
-          <Text style={styles.sectionTitle}>Descargar desde YouTube</Text>
+      {/* ── Descarga por URL de YouTube ── */}
+      <View style={styles.ytCard}>
+        {/* Cabecera */}
+        <View style={styles.ytCardHeader}>
+          <View style={styles.ytIconBadge}>
+            <Icon name="logo-youtube" size={20} color="#FF4444" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.ytCardTitle}>Descargar de YouTube</Text>
+            <Text style={styles.ytCardSub}>Pega el link y descarga el audio al dispositivo</Text>
+          </View>
         </View>
-        <Text style={styles.inputLabel}>
-          Pega la URL de un video (youtu.be o youtube.com/watch)
-        </Text>
-        <TextInput
-          value={ytUrl}
-          onChangeText={setYtUrl}
-          style={styles.searchInput}
-          placeholder="https://youtu.be/..."
-          placeholderTextColor={theme.colors.textMuted}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-          returnKeyType="done"
-          onSubmitEditing={downloadFromYoutube}
-        />
+
+        {/* Input URL */}
+        <View style={styles.ytInputRow}>
+          <Icon name="link-outline" size={16} color={theme.colors.textMuted} style={{ marginLeft: 10 }} />
+          <TextInput
+            value={ytUrl}
+            onChangeText={setYtUrl}
+            style={styles.ytInput}
+            placeholder="https://youtu.be/... o https://youtube.com/watch?v=..."
+            placeholderTextColor={theme.colors.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            returnKeyType="go"
+            onSubmitEditing={downloadFromYoutube}
+            editable={!ytLoading}
+          />
+          {ytUrl.length > 0 && !ytLoading && (
+            <Pressable onPress={() => setYtUrl('')} hitSlop={10} style={{ marginRight: 10 }}>
+              <Icon name="close-circle" size={16} color={theme.colors.textMuted} />
+            </Pressable>
+          )}
+        </View>
+
+        {/* Botón */}
         <Pressable
           onPress={downloadFromYoutube}
-          style={[styles.primaryButton, ytLoading && { opacity: 0.6 }]}
-          disabled={ytLoading}
+          style={[styles.ytDownloadBtn, (!ytUrl.trim() || ytLoading) && styles.ytDownloadBtnDisabled]}
+          disabled={!ytUrl.trim() || ytLoading}
         >
           {ytLoading ? (
-            <ActivityIndicator color={theme.colors.background} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <ActivityIndicator color={theme.colors.background} size="small" />
+              <Text style={styles.ytDownloadBtnText}>Obteniendo audio…</Text>
+            </View>
           ) : (
-            <Text style={styles.primaryButtonText}>Descargar audio</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Icon name="download-outline" size={18} color={theme.colors.background} />
+              <Text style={styles.ytDownloadBtnText}>Descargar audio</Text>
+            </View>
           )}
         </Pressable>
-        <View style={styles.demoBanner}>
-          <Icon name="information-circle-outline" size={13} color={theme.colors.accent} />
-          <Text style={styles.demoBannerText}>
-            Usa servidores Piped (open source). Solo para uso personal. Puede fallar si
-            los servidores están caídos — en ese caso usa Audius.
+
+        {/* Nota informativa */}
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
+          <Icon name="shield-checkmark-outline" size={13} color={theme.colors.success} style={{ marginTop: 1 }} />
+          <Text style={styles.ytNote}>
+            Solo audio · Solo para uso personal · Se guarda en AudivoxMusic
           </Text>
         </View>
       </View>
