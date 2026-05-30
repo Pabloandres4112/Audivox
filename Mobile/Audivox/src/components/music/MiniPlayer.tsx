@@ -1,5 +1,56 @@
-import React from 'react'; import {Image,Pressable,StyleSheet,Text,View} from 'react-native'; import Icon from 'react-native-vector-icons/Ionicons'; import {MotiView} from 'moti';
-import {usePlayerStore} from '../../store/usePlayerStore'; import {theme} from '../../theme';
-export const MiniPlayer=({onOpen}:{onOpen:()=>void})=>{const {current,isPlaying,togglePlay,next}=usePlayerStore(); if(!current)return null;
-return <MotiView from={{translateY:80,opacity:0}} animate={{translateY:0,opacity:1}} transition={{type:'timing',duration:280}} style={styles.box}><Pressable onPress={onOpen} style={styles.track}><Image source={{uri:current.artwork}} style={styles.cover}/><Text style={styles.title} numberOfLines={1}>{current.title}</Text></Pressable><View style={styles.controls}><Pressable onPress={()=>togglePlay()}><Icon name={isPlaying?'pause-circle':'play-circle'} size={30} color={theme.colors.text}/></Pressable><Pressable onPress={()=>next()}><Icon name='play-skip-forward' size={22} color={theme.colors.text}/></Pressable></View></MotiView>;};
-const styles=StyleSheet.create({box:{position:'absolute',left:12,right:12,bottom:10,backgroundColor:theme.colors.surfaceAlt,borderRadius:16,padding:12,borderWidth:1,borderColor:theme.colors.border,flexDirection:'row',alignItems:'center'},track:{flex:1,flexDirection:'row',alignItems:'center',gap:10},cover:{width:42,height:42,borderRadius:8},title:{color:theme.colors.text,flex:1,fontWeight:'700'},controls:{flexDirection:'row',alignItems:'center',gap:10}});
+import React from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { MotiView } from 'moti';
+import { usePlayerStore } from '../../store/usePlayerStore';
+import { theme } from '../../theme';
+export const MiniPlayer = ({ onOpen }: { onOpen: () => void }) => {
+  const { current, isPlaying, togglePlay, next } = usePlayerStore();
+  if (!current) return null;
+  return (
+    <MotiView
+      from={{ translateY: 80, opacity: 0 }}
+      animate={{ translateY: 0, opacity: 1 }}
+      transition={{ type: 'timing', duration: 280 }}
+      style={styles.box}
+    >
+      <Pressable onPress={onOpen} style={styles.track}>
+        <Image source={{ uri: current.artwork }} style={styles.cover} />
+        <Text style={styles.title} numberOfLines={1}>
+          {current.title}
+        </Text>
+      </Pressable>
+      <View style={styles.controls}>
+        <Pressable onPress={() => togglePlay()}>
+          <Icon
+            name={isPlaying ? 'pause-circle' : 'play-circle'}
+            size={30}
+            color={theme.colors.text}
+          />
+        </Pressable>
+        <Pressable onPress={() => next()}>
+          <Icon name="play-skip-forward" size={22} color={theme.colors.text} />
+        </Pressable>
+      </View>
+    </MotiView>
+  );
+};
+const styles = StyleSheet.create({
+  box: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 10,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  track: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cover: { width: 42, height: 42, borderRadius: 8 },
+  title: { color: theme.colors.text, flex: 1, fontWeight: '700' },
+  controls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+});

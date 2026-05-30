@@ -5,9 +5,14 @@ import App from '../App';
 jest.mock('../src/navigation/RootNavigator', () => ({
   RootNavigator: 'RootNavigator',
 }));
+jest.mock('../src/hooks/usePlaybackTick', () => ({
+  usePlaybackTick: jest.fn(),
+}));
 
 describe('App', () => {
   it('renders app shell', () => {
-    renderer.create(<App />);
+    renderer.act(() => {
+      renderer.create(<App />);
+    });
   });
 });
