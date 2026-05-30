@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { songs } from '../services/mockData';
@@ -66,17 +66,37 @@ export const HeroPanel = ({
   subtitle: string;
   image: string;
   onPress?: () => void;
-}) => (
-  <Pressable onPress={onPress} style={styles.heroPanel}>
-    <Image source={{ uri: image }} style={styles.heroImage} />
-    <View style={styles.heroOverlay} />
-    <View style={styles.heroTextWrap}>
-      <Text style={styles.heroKicker}>Featured session</Text>
-      <Text style={styles.heroTitle}>{title}</Text>
-      <Text style={styles.heroSub}>{subtitle}</Text>
-    </View>
-  </Pressable>
-);
+}) => {
+  const [imgError, setImgError] = useState(false);
+  const validImage = image?.startsWith('http') && !imgError;
+
+  return (
+    <Pressable onPress={onPress} style={styles.heroPanel}>
+      {validImage ? (
+        <>
+          <Image
+            source={{ uri: image }}
+            style={styles.heroImage}
+            onError={() => setImgError(true)}
+          />
+          <View style={styles.heroOverlay} />
+          <View style={styles.heroTextWrap}>
+            <Text style={styles.heroKicker}>Featured session</Text>
+            <Text style={styles.heroTitle}>{title}</Text>
+            <Text style={styles.heroSub}>{subtitle}</Text>
+          </View>
+        </>
+      ) : (
+        // Fallback cuando la imagen no carga o la URL es inválida
+        <View style={styles.heroPanelFallback}>
+          <Icon name="musical-notes" size={40} color={theme.colors.primary} />
+          <Text style={styles.heroTitle} numberOfLines={2}>{title}</Text>
+          <Text style={styles.heroPanelFallbackText}>{subtitle}</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+};
 
 export const StatCard = ({
   label,

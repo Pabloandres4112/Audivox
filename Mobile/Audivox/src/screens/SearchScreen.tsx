@@ -106,11 +106,11 @@ export const SearchScreen = ({
             <Pressable
               key={artist.id}
               style={styles.resultPill}
-              onPress={() =>
-                navigation
-                  .getParent()
-                  ?.navigate('Artist' as never, { artistId: artist.id } as never)
-              }
+              onPress={() => {
+                // getParent<any>() evita crash cuando el padre no tiene la ruta registrada
+                const rootNav = navigation.getParent<any>();
+                if (rootNav) rootNav.navigate('Artist', { artistId: artist.id });
+              }}
             >
               <Text style={styles.resultPrimary}>Artist</Text>
               <Text style={styles.resultSecondary}>{artist.name}</Text>
@@ -126,11 +126,10 @@ export const SearchScreen = ({
             <Pressable
               key={album.id}
               style={styles.resultPill}
-              onPress={() =>
-                navigation
-                  .getParent()
-                  ?.navigate('Album' as never, { albumId: album.id } as never)
-              }
+              onPress={() => {
+                const rootNav = navigation.getParent<any>();
+                if (rootNav) rootNav.navigate('Album', { albumId: album.id });
+              }}
             >
               <Text style={styles.resultPrimary}>Album</Text>
               <Text style={styles.resultSecondary}>{album.title}</Text>
@@ -146,11 +145,10 @@ export const SearchScreen = ({
             <Pressable
               key={list.id}
               style={styles.resultPill}
-              onPress={() =>
-                navigation
-                  .getParent()
-                  ?.navigate('Playlist' as never, { playlistId: list.id } as never)
-              }
+              onPress={() => {
+                const rootNav = navigation.getParent<any>();
+                if (rootNav) rootNav.navigate('Playlist', { playlistId: list.id });
+              }}
             >
               <Text style={styles.resultPrimary}>Playlist</Text>
               <Text style={styles.resultSecondary}>{list.title}</Text>

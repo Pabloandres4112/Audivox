@@ -89,7 +89,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (ok) set({ current: song, isPlaying: true, progress: 0, duration: 0 });
   },
 
-  seek: (v: number) => set({ progress: v }),
+  // seek llamado por el USUARIO: mueve el reproductor nativo + actualiza UI
+  seek: (v: number) => {
+    playerService.seekTo(v);
+    set({ progress: v });
+  },
   setDuration: (d: number) => set({ duration: d }),
   toggleShuffle: () => set(s => ({ shuffle: !s.shuffle })),
   toggleRepeat: () =>

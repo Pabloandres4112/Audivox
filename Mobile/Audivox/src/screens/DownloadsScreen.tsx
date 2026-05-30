@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { EmptyBlock } from '../components/common/StateBlocks';
+import { audiusService, AudiusTrackResult } from '../services/audiusService';
 import { localMediaService, LocalMediaItem } from '../services/localMediaService';
 import {
   ExternalDownload,
@@ -23,11 +24,6 @@ import { theme } from '../theme';
 import { styles } from './styles';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const FORMATS: ExternalDownloadFormat[] = ['mp3', 'm4a', 'wav'];
-
-const youtubeRegex =
-  /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[a-zA-Z0-9_-]{6,}/;
 
 const STATUS_LABEL: Record<ExternalDownloadStatus, string> = {
   queued: 'En cola',
@@ -45,28 +41,22 @@ const STATUS_COLOR: Record<ExternalDownloadStatus, string> = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const titleFromUrl = (url: string) => {
-  const m = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{6,})/);
-  return `YouTube ${m?.[1] ?? 'audio'}`;
-};
-
 const dateLabel = (ts?: number) => {
   if (!ts) return '-';
   const d = new Date(ts);
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
 };
 
-const fetchYoutubeMeta = async (url: string) => {
-  try {
-    const res = await fetch(
-      `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
-    );
-    if (!res.ok) return null;
-    const d = (await res.json()) as { title?: string; thumbnail_url?: string };
-    return { title: d.title, thumbnailUrl: d.thumbnail_url };
-  } catch {
-    return null;
-  }
+const formatDuration = (seconds: number) => {
+  const total = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+const toDownloadFormat = (raw?: string): ExternalDownloadFormat => {
+  if (raw === 'm4a' || raw === 'wav' || raw === 'mp3') return raw;
+  return 'mp3';
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -97,9 +87,15 @@ const DownloadItemCard = ({
       )}
 
       <View style={{ flex: 1, gap: 3 }}>
-        <Text style={styles.downloadItemTitle} numberOfLines={1}>
-          {item.title}
-        </Text>
+        {/* Título + badge DEMO en la misma fila */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={[styles.downloadItemTitle, { flex: 1 }]} numberOfLines={1}>
+            {item.title}
+          </Text>
+          <View style={styles.demoBadge}>
+            <Text style={styles.demoBadgeText}>DEMO</Text>
+          </View>
+        </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
           <Text style={[styles.downloadItemMeta, { color: STATUS_COLOR[item.status] }]}>
             {STATUS_LABEL[item.status]}
@@ -226,6 +222,42 @@ const HistoryCard = ({ item, isPlaying, onPlay, onRemove }: HistoryCardProps) =>
   </View>
 );
 
+type SearchResultCardProps = {
+  item: AudiusTrackResult;
+  onDownload: () => void;
+};
+
+const SearchResultCard = ({ item, onDownload }: SearchResultCardProps) => (
+  <View style={styles.resultPill}>
+    <View style={styles.dlCardRow}>
+      {item.artworkUrl ? (
+        <Image source={{ uri: item.artworkUrl }} style={styles.dlThumb} />
+      ) : (
+        <View style={[styles.dlThumb, styles.dlThumbFallback]}>
+          <Icon name="radio-outline" size={18} color={theme.colors.primary} />
+        </View>
+      )}
+      <View style={{ flex: 1, gap: 3 }}>
+        <Text style={styles.resultSecondary} numberOfLines={1}>
+          {item.title}
+        </Text>
+        <Text style={styles.downloadItemMeta} numberOfLines={1}>
+          {item.artistName}
+        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+          {item.genre ? <Text style={styles.resultPrimary}>{item.genre}</Text> : null}
+          <Text style={styles.downloadItemMeta}>{formatDuration(item.duration)}</Text>
+          <Text style={styles.downloadItemMeta}>·</Text>
+          <Text style={styles.downloadItemFormat}>{item.format.toUpperCase()}</Text>
+        </View>
+      </View>
+      <Pressable onPress={onDownload} style={styles.dlPlayBtn} hitSlop={8}>
+        <Icon name="download-outline" size={18} color={theme.colors.background} />
+      </Pressable>
+    </View>
+  </View>
+);
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export const DownloadsScreen = () => {
@@ -243,17 +275,17 @@ export const DownloadsScreen = () => {
   const currentSong = usePlayerStore(s => s.current);
   const isPlayerPlaying = usePlayerStore(s => s.isPlaying);
 
-  const [url, setUrl] = useState('');
-  const [format, setFormat] = useState<ExternalDownloadFormat>('mp3');
+  const [query, setQuery] = useState('');
   const [errorText, setErrorText] = useState<string | null>(null);
   const [successText, setSuccessText] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [folderPath, setFolderPath] = useState('');
   const [storageGranted, setStorageGranted] = useState(false);
   const [audioFiles, setAudioFiles] = useState<LocalMediaItem[]>([]);
   const [imageFiles, setImageFiles] = useState<LocalMediaItem[]>([]);
   const [localStatus, setLocalStatus] = useState('Permisos pendientes');
+  const [searchResults, setSearchResults] = useState<AudiusTrackResult[]>([]);
 
   // Tracking activo de descargas (para cancelación futura)
   const activeDownloads = React.useRef<Set<string>>(new Set());
@@ -285,7 +317,7 @@ export const DownloadsScreen = () => {
 
   useEffect(() => {
     if (!successText) return;
-    const t = setTimeout(() => setSuccessText(null), 6000);
+    const t = setTimeout(() => setSuccessText(null), 4000);
     return () => clearTimeout(t);
   }, [successText]);
 
@@ -317,31 +349,37 @@ export const DownloadsScreen = () => {
     setLocalStatus(`Listo: ${scan.audio.length} audio · ${scan.images.length} imágenes`);
   };
 
-  // ── Descarga real vía cobalt.tools ──────────────────────────────────────────
-  const performDownload = async (id: string) => {
-    const snapshot = useAppStore.getState().externalDownloads.find(d => d.id === id);
-    if (!snapshot) return;
+  const performDownload = async (
+    item: Pick<ExternalDownload, 'id' | 'title' | 'thumbnailUrl' | 'format' | 'url'>,
+  ) => {
+    const snapshot = useAppStore.getState().externalDownloads.find(d => d.id === item.id);
+    const target = snapshot ?? item;
+    if (!target) return;
 
-    activeDownloads.current.add(id);
-    updateExternalDownload(id, { status: 'downloading', progress: 1, error: undefined });
+    activeDownloads.current.add(target.id);
+    updateExternalDownload(target.id, {
+      status: 'downloading',
+      progress: 1,
+      error: undefined,
+    });
 
     try {
-      const result = await localMediaService.downloadYouTubeAudio(
-        snapshot.url,
-        snapshot.title,
-        snapshot.format,
-        snapshot.thumbnailUrl,
+      const result = await localMediaService.downloadRemoteAudio(
+        target.url,
+        target.title,
+        target.format,
+        target.thumbnailUrl,
         (pct) => {
-          if (activeDownloads.current.has(id)) {
-            updateExternalDownload(id, { progress: pct });
+          if (activeDownloads.current.has(target.id)) {
+            updateExternalDownload(target.id, { progress: pct });
           }
         },
       );
 
-      if (!activeDownloads.current.has(id)) return; // fue eliminado
+      if (!activeDownloads.current.has(target.id)) return;
 
       const completedAt = Date.now();
-      const fresh = useAppStore.getState().externalDownloads.find(d => d.id === id);
+      const fresh = useAppStore.getState().externalDownloads.find(d => d.id === target.id);
       if (!fresh) return;
 
       const completedItem: ExternalDownload = {
@@ -353,7 +391,7 @@ export const DownloadsScreen = () => {
         sizeLabel: result.sizeLabel,
       };
 
-      updateExternalDownload(id, {
+      updateExternalDownload(target.id, {
         status: 'completed',
         progress: 100,
         completedAt,
@@ -363,45 +401,66 @@ export const DownloadsScreen = () => {
       addToDownloadHistory(completedItem);
       setSuccessText(`Descarga exitosa: ${result.fileName} (${result.sizeLabel ?? ''})`);
       setLocalStatus('Archivo guardado en AudivoxMusic');
+      scanLocalFolder().catch(() => {});
 
     } catch (err) {
-      if (!activeDownloads.current.has(id)) return;
+      if (!activeDownloads.current.has(target.id)) return;
       const msg = err instanceof Error ? err.message : String(err);
-      updateExternalDownload(id, { status: 'failed', progress: 0, error: msg });
+      updateExternalDownload(target.id, { status: 'failed', progress: 0, error: msg });
       setErrorText(msg);
     } finally {
-      activeDownloads.current.delete(id);
+      activeDownloads.current.delete(target.id);
     }
   };
 
-  const submitDownload = async () => {
-    const cleanUrl = url.trim();
-    if (!youtubeRegex.test(cleanUrl)) {
-      setErrorText('URL inválida. Usa youtube.com o youtu.be');
+  const submitSearch = async () => {
+    const cleanQuery = query.trim();
+    if (!cleanQuery) {
+      setErrorText('Escribe el nombre de una canción o artista.');
       return;
     }
-    setIsSubmitting(true);
+    setIsSearching(true);
     setErrorText(null);
     setSuccessText(null);
 
-    const meta = await fetchYoutubeMeta(cleanUrl);
-    const id = `ext-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
+    try {
+      const results = await audiusService.searchTracks(cleanQuery);
+      setSearchResults(results);
+      if (results.length === 0) {
+        setLocalStatus('No hubo resultados para esa búsqueda.');
+      } else {
+        setLocalStatus(`Resultados encontrados: ${results.length}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'No se pudo buscar en Audius.';
+      setErrorText(msg);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
-    enqueueExternalDownload({
+  const queueAudiusDownload = async (track: AudiusTrackResult) => {
+    setErrorText(null);
+    setSuccessText(null);
+
+    const id = `ext-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
+    const format = toDownloadFormat(track.format);
+    const queuedItem: ExternalDownload = {
       id,
-      url: cleanUrl,
-      title: meta?.title || titleFromUrl(cleanUrl),
-      thumbnailUrl: meta?.thumbnailUrl,
+      url: track.streamUrl,
+      title: track.title,
+      thumbnailUrl: track.artworkUrl,
       format,
       status: 'queued',
       progress: 0,
       createdAt: Date.now(),
-    });
-    setUrl('');
-    setIsSubmitting(false);
+    };
 
-    // Inicia descarga real (no bloquea el UI)
-    performDownload(id);
+    enqueueExternalDownload(queuedItem);
+    setSuccessText(`Descarga en cola: ${track.title}`);
+    setLocalStatus(`Preparando descarga de ${track.artistName}`);
+    performDownload(queuedItem);
   };
 
   const removeItem = (id: string) => {
@@ -460,7 +519,7 @@ export const DownloadsScreen = () => {
 
       <View>
         <Text style={styles.pageTitle}>Descargas</Text>
-        <Text style={styles.pageSub}>Descarga música de YouTube y escúchala offline.</Text>
+        <Text style={styles.pageSub}>Busca música en Audius y guárdala en AudivoxMusic para oírla offline.</Text>
       </View>
 
       {successText ? (
@@ -503,55 +562,48 @@ export const DownloadsScreen = () => {
 
       {/* ── Descargador ── */}
       <View style={styles.downloaderCard}>
-        <Text style={styles.sectionTitle}>Nueva descarga</Text>
+        <Text style={styles.sectionTitle}>Buscar y descargar</Text>
 
-        <Text style={styles.inputLabel}>URL de YouTube</Text>
+        <Text style={styles.inputLabel}>Canción o artista</Text>
         <TextInput
-          value={url}
-          onChangeText={setUrl}
-          style={styles.urlInput}
-          autoCapitalize="none"
+          value={query}
+          onChangeText={setQuery}
+          style={styles.searchInput}
+          autoCapitalize="words"
           autoCorrect={false}
-          keyboardType="url"
-          placeholder="https://youtu.be/..."
+          placeholder="Ej: Disclosure, Daft Punk, house..."
           placeholderTextColor={theme.colors.textMuted}
+          onSubmitEditing={submitSearch}
         />
 
-        <Text style={styles.inputLabel}>Formato</Text>
-        <View style={styles.formatRow}>
-          {FORMATS.map(f => (
-            <Pressable
-              key={f}
-              onPress={() => setFormat(f)}
-              style={[styles.formatButton, format === f && styles.formatButtonActive]}
-            >
-              <Text
-                style={[
-                  styles.formatButtonText,
-                  format === f && styles.formatButtonTextActive,
-                ]}
-              >
-                {f.toUpperCase()}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Pressable onPress={submitDownload} style={styles.primaryButton} disabled={isSubmitting}>
-          {isSubmitting ? (
+        <Pressable onPress={submitSearch} style={styles.primaryButton} disabled={isSearching}>
+          {isSearching ? (
             <ActivityIndicator color={theme.colors.background} />
           ) : (
-            <Text style={styles.primaryButtonText}>Descargar</Text>
+            <Text style={styles.primaryButtonText}>Buscar</Text>
           )}
         </Pressable>
 
         <View style={styles.demoBanner}>
           <Icon name="information-circle-outline" size={13} color={theme.colors.accent} />
           <Text style={styles.demoBannerText}>
-            Usa cobalt.tools para obtener el audio real. Si la API falla, la descarga
-            marcará error en lugar de guardar audio incorrecto.
+            Fuente online: Audius. Busca una pista, toca descargar y el audio se guarda
+            localmente en AudivoxMusic para reproducirlo sin Internet.
           </Text>
         </View>
+
+        {searchResults.length > 0 ? (
+          <View style={{ gap: 10 }}>
+            <Text style={styles.inputLabel}>Resultados</Text>
+            {searchResults.map(item => (
+              <SearchResultCard
+                key={item.id}
+                item={item}
+                onDownload={() => queueAudiusDownload(item)}
+              />
+            ))}
+          </View>
+        ) : null}
       </View>
 
       {/* ── Descargas activas ── */}
@@ -569,7 +621,7 @@ export const DownloadsScreen = () => {
       {sortedExternalDownloads.length === 0 ? (
         <EmptyBlock
           title="Sin descargas"
-          subtitle="Agrega una URL de YouTube arriba."
+          subtitle="Busca una pista arriba y descárgala al dispositivo."
           icon="cloud-download-outline"
         />
       ) : (
@@ -579,7 +631,7 @@ export const DownloadsScreen = () => {
             item={item}
             isPlaying={playingItemId === item.id}
             onPlay={() => handlePlayItem(item)}
-            onRetry={() => performDownload(item.id)}
+            onRetry={() => performDownload(item)}
             onRemove={() => removeItem(item.id)}
           />
         ))

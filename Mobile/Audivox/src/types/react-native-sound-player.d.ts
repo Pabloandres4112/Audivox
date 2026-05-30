@@ -15,11 +15,13 @@ declare module 'react-native-sound-player' {
   }
 
   const SoundPlayer: {
+    playSoundFile(fileName: string, fileType: string): void;
     playUrl(url: string): void;
     pause(): void;
     resume(): void;
     stop(): void;
     getInfo(): Promise<SoundPlayerInfo>;
+    seek(seconds: number): void;
     addEventListener(
       eventType: SoundPlayerEventType,
       callback: (data: { success: boolean }) => void,

@@ -13,30 +13,28 @@ export const usePlaybackTick = () => {
 
     // ── Evento: la canción terminó nativamente ──────────────────────────────
     const doneListener = SoundPlayer.addEventListener('FinishedPlaying', () => {
-      const { repeat, next, seek } = usePlayerStore.getState();
-      if (repeat === 'one') {
-        // Reiniciar progreso y reproducir de nuevo
-        seek(0);
-        const current = usePlayerStore.getState().current;
-        if (current) usePlayerStore.getState().playSong(current);
+      const { repeat, next, playSong, current: cur } = usePlayerStore.getState();
+      if (repeat === 'one' && cur) {
+        // Reiniciar sin seek nativo — simplemente vuelve a reproducir desde el inicio
+        usePlayerStore.setState({ progress: 0 });
+        playSong(cur);
       } else {
         next();
       }
     });
 
     // ── Poll de progreso cada 500 ms ────────────────────────────────────────
-    // Obtiene posición real del MediaPlayer nativo.
+    // Usa setState directo para NO disparar el seek nativo del usuario.
+    // seek() del store llama playerService.seekTo() — eso es solo para el usuario.
     const ticker = setInterval(async () => {
       try {
         const info = await SoundPlayer.getInfo();
-        const { seek, setDuration } = usePlayerStore.getState();
 
         if (typeof info.currentTime === 'number' && info.currentTime >= 0) {
-          seek(info.currentTime);
+          usePlayerStore.setState({ progress: info.currentTime });
         }
-        // Actualiza duración cuando SoundPlayer la tenga
         if (typeof info.duration === 'number' && info.duration > 0) {
-          setDuration(info.duration);
+          usePlayerStore.setState({ duration: info.duration });
         }
       } catch {
         // SoundPlayer aún no tiene info disponible (normal al inicio)

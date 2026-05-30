@@ -18,6 +18,14 @@ const toMediaItem = (entry: ReadDirItem) => ({
 const sanitizeFilename = (raw: string) =>
   raw.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '_').slice(0, 40);
 
+const normalizeAudioExtension = (raw?: string | null) => {
+  const ext = (raw ?? '').toLowerCase().replace('.', '');
+  if (['mp3', 'm4a', 'wav', 'aac', 'flac', 'ogg', 'opus'].includes(ext)) {
+    return ext;
+  }
+  return 'mp3';
+};
+
 export type LocalMediaItem = {
   name: string;
   path: string;
@@ -112,6 +120,62 @@ export const localMediaService = {
     return all
       .filter(item => !seen.has(item.path) && seen.add(item.path))
       .sort((a, b) => b.mtime - a.mtime);
+  },
+
+  downloadRemoteAudio: async (
+    sourceUrl: string,
+    title: string,
+    preferredExt?: string,
+    thumbnailUrl?: string,
+    onProgress?: (pct: number) => void,
+  ): Promise<{ audioPath: string; fileName: string; sizeLabel?: string }> => {
+    const dir = await localMediaService.ensureAudivoxFolder();
+    const ext = normalizeAudioExtension(preferredExt);
+    const baseName = sanitizeFilename(title) || `track_${Date.now()}`;
+    const fileName = `${baseName}.${ext}`;
+    const audioPath = `${dir}/${fileName}`;
+
+    onProgress?.(4);
+
+    const download = RNFS.downloadFile({
+      fromUrl: sourceUrl,
+      toFile: audioPath,
+      background: true,
+      discretionary: true,
+      progressInterval: 400,
+      progress: r => {
+        if (r.contentLength > 0) {
+          const pct = 5 + Math.floor((r.bytesWritten / r.contentLength) * 90);
+          onProgress?.(Math.min(95, pct));
+        }
+      },
+    });
+
+    const result = await download.promise;
+    if (result.statusCode < 200 || result.statusCode >= 300) {
+      await RNFS.unlink(audioPath).catch(() => {});
+      throw new Error(`Descarga fallida (HTTP ${result.statusCode}).`);
+    }
+
+    const stat = await RNFS.stat(audioPath).catch(() => null);
+    if (!stat || Number(stat.size) < 4096) {
+      await RNFS.unlink(audioPath).catch(() => {});
+      throw new Error('El archivo descargado no contiene audio válido.');
+    }
+
+    const sizeLabel = `${(Number(stat.size) / 1024 / 1024).toFixed(1)} MB`;
+
+    if (thumbnailUrl) {
+      const coverPath = `${dir}/${baseName}.jpg`;
+      try {
+        if (!(await RNFS.exists(coverPath))) {
+          await RNFS.downloadFile({ fromUrl: thumbnailUrl, toFile: coverPath }).promise;
+        }
+      } catch {}
+    }
+
+    onProgress?.(100);
+    return { audioPath, fileName, sizeLabel };
   },
 
   // ── Descarga YouTube vía Piped API (open-source, sin autenticación) ────────

@@ -16,13 +16,14 @@ export const MiniPlayer = ({ onOpen }: { onOpen: () => void }) => {
   if (!current) return null;
 
   const ratio = duration > 0 ? Math.min(1, progress / duration) : 0;
+  // tab bar: height 56 + insets, bottom: insets+8 -> total ~ insets+74+10 -> +12 respiro = +96
 
   return (
     <MotiView
       from={{ translateY: 90, opacity: 0 }}
       animate={{ translateY: 0, opacity: 1 }}
       transition={{ type: 'timing', duration: 280 }}
-      style={[styles.box, { bottom: insets.bottom + 70 }]}
+      style={[styles.box, { bottom: insets.bottom + 96 }]}
     >
       <Pressable onPress={onOpen} style={styles.track}>
         {current.artwork ? (

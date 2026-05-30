@@ -5,17 +5,82 @@ import {
   Pressable,
   ScrollView,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { MotiView } from 'moti';
 import Icon from 'react-native-vector-icons/Ionicons';
+import { audiusService, AudiusTrackResult } from '../services/audiusService';
 import { localMediaService, LocalMediaItem } from '../services/localMediaService';
 import { useAppStore } from '../store/useAppStore';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { theme } from '../theme';
 import { MainTabParamList } from '../navigation/types';
 import { styles } from './styles';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const fmtDuration = (s: number) => {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+};
+
+// ─── Audius Track Card ────────────────────────────────────────────────────────
+
+type AudiusCardProps = {
+  track: AudiusTrackResult;
+  isPlaying: boolean;
+  onPlay: () => void;
+};
+
+const AudiusCard = ({ track, isPlaying, onPlay }: AudiusCardProps) => (
+  <Pressable style={styles.localTrackCard} onPress={onPlay}>
+    {track.artworkUrl ? (
+      <Image
+        source={{ uri: track.artworkUrl }}
+        style={[styles.localTrackIconWrap, { borderRadius: 10 }]}
+      />
+    ) : (
+      <View
+        style={[
+          styles.localTrackIconWrap,
+          isPlaying && { backgroundColor: theme.colors.primary },
+        ]}
+      >
+        <Icon
+          name="musical-note-outline"
+          size={20}
+          color={isPlaying ? theme.colors.background : theme.colors.primary}
+        />
+      </View>
+    )}
+
+    <View style={{ flex: 1, gap: 2 }}>
+      <Text style={styles.localTrackTitle} numberOfLines={1}>
+        {track.title}
+      </Text>
+      <Text style={styles.localTrackMeta} numberOfLines={1}>
+        {track.artistName}
+      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        {track.genre ? (
+          <Text style={[styles.localTrackMeta, { color: theme.colors.primary, fontSize: 10 }]}>
+            {track.genre}
+          </Text>
+        ) : null}
+        <Text style={styles.localTrackMeta}>{fmtDuration(track.duration)}</Text>
+      </View>
+    </View>
+
+    <Icon
+      name={isPlaying ? 'pause-circle' : 'play-circle-outline'}
+      size={32}
+      color={isPlaying ? theme.colors.primary : theme.colors.textMuted}
+    />
+  </Pressable>
+);
 
 // ─── Local Track Card ─────────────────────────────────────────────────────────
 
@@ -61,56 +126,6 @@ const LocalTrackCard = ({ track, isPlaying, onPlay }: LocalTrackCardProps) => {
   );
 };
 
-// ─── Recent Download Card ─────────────────────────────────────────────────────
-
-type RecentDownloadCardProps = {
-  title: string;
-  fileName?: string;
-  thumbnailUrl?: string;
-  sizeLabel?: string;
-  isPlaying: boolean;
-  onPlay: () => void;
-};
-
-const RecentDownloadCard = ({
-  title,
-  fileName,
-  thumbnailUrl,
-  sizeLabel,
-  isPlaying,
-  onPlay,
-}: RecentDownloadCardProps) => (
-  <Pressable style={styles.localTrackCard} onPress={onPlay}>
-    {thumbnailUrl ? (
-      <Image
-        source={{ uri: thumbnailUrl }}
-        style={[styles.localTrackIconWrap, { borderRadius: 10 }]}
-      />
-    ) : (
-      <View style={[styles.localTrackIconWrap, isPlaying && { backgroundColor: theme.colors.primary }]}>
-        <Icon
-          name={isPlaying ? 'musical-notes' : 'download-outline'}
-          size={18}
-          color={isPlaying ? theme.colors.background : theme.colors.primary}
-        />
-      </View>
-    )}
-    <View style={{ flex: 1 }}>
-      <Text style={styles.localTrackTitle} numberOfLines={1}>
-        {title}
-      </Text>
-      <Text style={styles.localTrackMeta} numberOfLines={1}>
-        {fileName ?? '-'} {sizeLabel ? `· ${sizeLabel}` : ''}
-      </Text>
-    </View>
-    <Icon
-      name={isPlaying ? 'pause-circle' : 'play-circle-outline'}
-      size={30}
-      color={isPlaying ? theme.colors.primary : theme.colors.textMuted}
-    />
-  </Pressable>
-);
-
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export const HomeScreen = ({
@@ -122,20 +137,69 @@ export const HomeScreen = ({
   const isConnected = useAppStore(s => s.isConnected);
   const downloadHistory = useAppStore(s => s.downloadHistory);
 
-  const playSong = usePlayerStore(s => s.playSong);
-  const currentSong = usePlayerStore(s => s.current);
-  const isPlayerPlaying = usePlayerStore(s => s.isPlaying);
+  const { playSong, current: currentSong, isPlaying: isPlayerPlaying } =
+    usePlayerStore();
 
   const effectiveMode = isConnected ? modePreference : 'offline';
 
-  // ── Estado offline: música local ──
+  // ── Estado ONLINE: Audius ──────────────────────────────────────────────────
+  const [audiusTracks, setAudiusTracks] = useState<AudiusTrackResult[]>([]);
+  const [audiusQuery, setAudiusQuery] = useState('');
+  const [audiusLoading, setAudiusLoading] = useState(false);
+  const [audiusError, setAudiusError] = useState<string | null>(null);
+  const [audiusMode, setAudiusMode] = useState<'trending' | 'search'>('trending');
+
+  // ── Estado OFFLINE: música local ──────────────────────────────────────────
   const [localTracks, setLocalTracks] = useState<LocalMediaItem[]>([]);
   const [localScanStatus, setLocalScanStatus] = useState<
     'idle' | 'scanning' | 'done' | 'no-permission'
   >('idle');
 
+  // ── Audius: cargar trending al entrar en online ───────────────────────────
+  useEffect(() => {
+    if (effectiveMode !== 'online') return;
+
+    setAudiusLoading(true);
+    setAudiusError(null);
+    audiusService
+      .getTrending(15)
+      .then(tracks => {
+        setAudiusTracks(tracks);
+        setAudiusMode('trending');
+      })
+      .catch(e => setAudiusError(e?.message ?? 'No se pudo conectar a Audius.'))
+      .finally(() => setAudiusLoading(false));
+  }, [effectiveMode]);
+
+  // ── Audius: búsqueda con debounce ─────────────────────────────────────────
+  useEffect(() => {
+    if (effectiveMode !== 'online') return;
+    if (!audiusQuery.trim()) {
+      // Si borra la query, volver al trending
+      setAudiusMode('trending');
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setAudiusLoading(true);
+      setAudiusError(null);
+      audiusService
+        .searchTracks(audiusQuery, 15)
+        .then(tracks => {
+          setAudiusTracks(tracks);
+          setAudiusMode('search');
+        })
+        .catch(e => setAudiusError(e?.message ?? 'Error al buscar.'))
+        .finally(() => setAudiusLoading(false));
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [audiusQuery, effectiveMode]);
+
+  // ── Offline: escanear música local ───────────────────────────────────────
   useEffect(() => {
     if (effectiveMode !== 'offline') return;
+
     setLocalScanStatus('scanning');
     localMediaService
       .requestStoragePermissions()
@@ -148,17 +212,37 @@ export const HomeScreen = ({
       .catch(() => setLocalScanStatus('done'));
   }, [effectiveMode]);
 
-  // Track local activo (id = `local-${path}`)
+  // ── ID de track activo ────────────────────────────────────────────────────
+  const playingAudiusId =
+    currentSong?.id.startsWith('audius-') && isPlayerPlaying
+      ? currentSong.id.slice(7)
+      : null;
+
   const playingLocalPath =
     currentSong?.id.startsWith('local-') && isPlayerPlaying
       ? currentSong.id.slice(6)
       : null;
 
-  // Track descarga activo (id = `ext-${itemId}`)
   const playingExtId =
     currentSong?.id.startsWith('ext-') && isPlayerPlaying
       ? currentSong.id.slice(4)
       : null;
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const handlePlayAudius = async (track: AudiusTrackResult) => {
+    const song = {
+      id: `audius-${track.id}`,
+      title: track.title,
+      artistId: track.artistName,
+      albumId: '',
+      duration: track.duration,
+      artwork: track.artworkUrl ?? '',
+      streamUrl: track.streamUrl,
+    };
+    const ok = await playSong(song);
+    if (ok) navigation.getParent?.()?.navigate('Player' as never);
+  };
 
   const handlePlayLocal = async (track: LocalMediaItem) => {
     const song = {
@@ -174,7 +258,7 @@ export const HomeScreen = ({
     if (ok) navigation.getParent?.()?.navigate('Player' as never);
   };
 
-  const handlePlayDownload = async (item: typeof downloadHistory[number]) => {
+  const handlePlayDownload = async (item: (typeof downloadHistory)[number]) => {
     if (!item.fileName) return;
     const dir = localMediaService.getAudivoxMusicDir();
     const song = {
@@ -190,12 +274,11 @@ export const HomeScreen = ({
     if (ok) navigation.getParent?.()?.navigate('Player' as never);
   };
 
-  // Descargas completadas más recientes (máx 10 en Home)
   const recentDownloads = [...downloadHistory]
     .sort((a, b) => (b.completedAt ?? b.createdAt) - (a.completedAt ?? a.createdAt))
-    .slice(0, 10);
+    .slice(0, 6);
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <ScrollView contentContainerStyle={styles.scrollPage}>
@@ -214,6 +297,31 @@ export const HomeScreen = ({
           <View style={styles.avatarBubble}>
             <Icon name="person-circle-outline" size={28} color={theme.colors.primary} />
           </View>
+        </View>
+
+        {/* ── Accesos rápidos ── */}
+        <View style={styles.homeToolbar}>
+          <Pressable
+            style={styles.homeToolBtn}
+            onPress={() => navigation.navigate('DownloadsTab')}
+          >
+            <Icon name="cloud-download-outline" size={16} color={theme.colors.primary} />
+            <Text style={styles.homeToolText}>Descargar</Text>
+          </Pressable>
+          <Pressable
+            style={styles.homeToolBtn}
+            onPress={() => navigation.navigate('LibraryTab')}
+          >
+            <Icon name="library-outline" size={16} color={theme.colors.primary} />
+            <Text style={styles.homeToolText}>Biblioteca</Text>
+          </Pressable>
+          <Pressable
+            style={styles.homeToolBtn}
+            onPress={() => navigation.navigate('SearchTab')}
+          >
+            <Icon name="search-outline" size={16} color={theme.colors.primary} />
+            <Text style={styles.homeToolText}>Buscar</Text>
+          </Pressable>
         </View>
 
         {/* ── Mode Switch ── */}
@@ -262,40 +370,135 @@ export const HomeScreen = ({
           </View>
         </View>
 
-        {/* ── Accesos rápidos ── */}
-        <View style={styles.homeToolbar}>
-          <Pressable
-            style={styles.homeToolBtn}
-            onPress={() => navigation.navigate('DownloadsTab')}
-          >
-            <Icon name="cloud-download-outline" size={16} color={theme.colors.primary} />
-            <Text style={styles.homeToolText}>Descargar</Text>
-          </Pressable>
-          <Pressable
-            style={styles.homeToolBtn}
-            onPress={() => navigation.navigate('LibraryTab')}
-          >
-            <Icon name="library-outline" size={16} color={theme.colors.primary} />
-            <Text style={styles.homeToolText}>Biblioteca</Text>
-          </Pressable>
-          <Pressable
-            style={styles.homeToolBtn}
-            onPress={() => navigation.navigate('SearchTab')}
-          >
-            <Icon name="search-outline" size={16} color={theme.colors.primary} />
-            <Text style={styles.homeToolText}>Buscar</Text>
-          </Pressable>
-        </View>
+        {/* ══════════════════════════════════════════════════════
+            MODO ONLINE — Audius (streaming directo, gratis)
+            ══════════════════════════════════════════════════════ */}
+        {effectiveMode === 'online' && (
+          <View style={{ gap: 12 }}>
 
-        {/* ════════════════════════════════════════════════
+            {/* Barra de búsqueda */}
+            <View style={styles.downloaderCard}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Icon name="radio-outline" size={16} color={theme.colors.primary} />
+                <Text style={styles.sectionTitle}>Audius</Text>
+                <View style={styles.demoBadge}>
+                  <Text style={styles.demoBadgeText}>GRATIS</Text>
+                </View>
+              </View>
+
+              <TextInput
+                value={audiusQuery}
+                onChangeText={setAudiusQuery}
+                style={styles.searchInput}
+                placeholder="Buscar artista, canción o género..."
+                placeholderTextColor={theme.colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+
+              {audiusError ? (
+                <View style={styles.errorBanner}>
+                  <Icon name="alert-circle-outline" size={13} color={theme.colors.danger} />
+                  <Text style={styles.errorBannerText}>{audiusError}</Text>
+                </View>
+              ) : null}
+            </View>
+
+            {/* Lista: trending o resultados */}
+            <View style={styles.downloadsHeaderRow}>
+              <Text style={styles.sectionTitle}>
+                {audiusMode === 'search'
+                  ? `Resultados (${audiusTracks.length})`
+                  : 'Tendencias globales'}
+              </Text>
+              {audiusMode === 'search' && (
+                <Pressable onPress={() => { setAudiusQuery(''); }}>
+                  <Text style={styles.sectionAction}>Limpiar</Text>
+                </Pressable>
+              )}
+            </View>
+
+            {audiusLoading ? (
+              <View style={{ alignItems: 'center', padding: 24, gap: 10 }}>
+                <ActivityIndicator color={theme.colors.primary} size="large" />
+                <Text style={styles.localTrackMeta}>
+                  {audiusMode === 'search' ? 'Buscando...' : 'Cargando tendencias...'}
+                </Text>
+              </View>
+            ) : audiusTracks.length === 0 && !audiusError ? (
+              <View style={styles.offlineBanner}>
+                <Icon name="musical-notes-outline" size={14} color={theme.colors.primary} />
+                <Text style={styles.offlineBannerText}>
+                  {audiusMode === 'search'
+                    ? 'Sin resultados para esa búsqueda.'
+                    : 'No se pudieron cargar las tendencias.'}
+                </Text>
+              </View>
+            ) : (
+              audiusTracks.map(track => (
+                <AudiusCard
+                  key={track.id}
+                  track={track}
+                  isPlaying={playingAudiusId === track.id}
+                  onPlay={() => handlePlayAudius(track)}
+                />
+              ))
+            )}
+
+            {/* Descargas recientes (para reproducir offline desde Home) */}
+            {recentDownloads.length > 0 && (
+              <>
+                <View style={styles.downloadsHeaderRow}>
+                  <Text style={styles.sectionTitle}>Guardadas localmente</Text>
+                  <Pressable onPress={() => navigation.navigate('DownloadsTab')}>
+                    <Text style={styles.sectionAction}>Ver todas</Text>
+                  </Pressable>
+                </View>
+                {recentDownloads.map(item => (
+                  <Pressable key={item.id} style={styles.localTrackCard} onPress={() => handlePlayDownload(item)}>
+                    {item.thumbnailUrl ? (
+                      <Image
+                        source={{ uri: item.thumbnailUrl }}
+                        style={[styles.localTrackIconWrap, { borderRadius: 10 }]}
+                      />
+                    ) : (
+                      <View style={[
+                        styles.localTrackIconWrap,
+                        playingExtId === item.id && { backgroundColor: theme.colors.primary },
+                      ]}>
+                        <Icon
+                          name="download-outline"
+                          size={18}
+                          color={playingExtId === item.id ? theme.colors.background : theme.colors.primary}
+                        />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.localTrackTitle} numberOfLines={1}>{item.title}</Text>
+                      <Text style={styles.localTrackMeta}>{item.fileName ?? '-'} · {item.sizeLabel ?? ''}</Text>
+                    </View>
+                    <Icon
+                      name={playingExtId === item.id ? 'pause-circle' : 'play-circle-outline'}
+                      size={30}
+                      color={playingExtId === item.id ? theme.colors.primary : theme.colors.textMuted}
+                    />
+                  </Pressable>
+                ))}
+              </>
+            )}
+          </View>
+        )}
+
+        {/* ══════════════════════════════════════════════════════
             MODO OFFLINE — música local del dispositivo
-            ════════════════════════════════════════════════ */}
+            ══════════════════════════════════════════════════════ */}
         {effectiveMode === 'offline' && (
           <View style={{ gap: 10 }}>
             <View style={styles.offlineBanner}>
               <Icon name="phone-portrait-outline" size={14} color={theme.colors.primary} />
               <Text style={styles.offlineBannerText}>
-                Modo offline · Escuchando desde tu dispositivo
+                Modo offline · Reproduciendo desde tu dispositivo
               </Text>
             </View>
 
@@ -339,47 +542,6 @@ export const HomeScreen = ({
                 onPlay={() => handlePlayLocal(track)}
               />
             ))}
-          </View>
-        )}
-
-        {/* ════════════════════════════════════════════════
-            MODO ONLINE — mis descargas
-            ════════════════════════════════════════════════ */}
-        {effectiveMode === 'online' && (
-          <View style={{ gap: 10 }}>
-            <View style={styles.downloadsHeaderRow}>
-              <Text style={styles.sectionTitle}>
-                Mis descargas
-                {recentDownloads.length > 0 ? ` (${recentDownloads.length})` : ''}
-              </Text>
-              <Pressable onPress={() => navigation.navigate('DownloadsTab')}>
-                <Text style={styles.sectionAction}>Ver todas</Text>
-              </Pressable>
-            </View>
-
-            {recentDownloads.length === 0 ? (
-              <Pressable
-                style={styles.offlineBanner}
-                onPress={() => navigation.navigate('DownloadsTab')}
-              >
-                <Icon name="cloud-download-outline" size={14} color={theme.colors.primary} />
-                <Text style={styles.offlineBannerText}>
-                  Aún no tienes descargas. Toca aquí para agregar música.
-                </Text>
-              </Pressable>
-            ) : (
-              recentDownloads.map(item => (
-                <RecentDownloadCard
-                  key={item.id}
-                  title={item.title}
-                  fileName={item.fileName}
-                  thumbnailUrl={item.thumbnailUrl}
-                  sizeLabel={item.sizeLabel}
-                  isPlaying={playingExtId === item.id}
-                  onPlay={() => handlePlayDownload(item)}
-                />
-              ))
-            )}
           </View>
         )}
       </MotiView>

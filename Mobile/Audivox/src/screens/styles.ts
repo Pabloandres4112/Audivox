@@ -5,7 +5,7 @@ export const styles = StyleSheet.create({
   scrollPage: {
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
-    paddingBottom: 96,
+    paddingBottom: 160, // MiniPlayer (≈60) + tab bar (≈62) + safe margin (≈38)
   },
   fullScreen: {
     flexGrow: 1,
@@ -208,16 +208,28 @@ export const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   heroPanel: {
-    minHeight: 210,
+    height: 200,
     borderRadius: theme.radius.xl,
     overflow: 'hidden',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surfaceRaised,
     borderWidth: 1,
     borderColor: theme.colors.borderSoft,
   },
+  heroPanelFallback: {
+    flex: 1,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 8,
+    backgroundColor: theme.colors.surfaceRaised,
+  },
+  heroPanelFallbackText: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    fontWeight: '700' as const,
+  },
   heroImage: { width: '100%', height: '100%' },
   heroOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(7, 11, 18, 0.18)',
   },
   heroTextWrap: {
@@ -313,12 +325,12 @@ export const styles = StyleSheet.create({
   resultPrimary: { color: theme.colors.primary, fontSize: 11, fontWeight: '800' },
   resultSecondary: { color: theme.colors.text, fontWeight: '800' },
   downloaderCard: {
-    padding: 16,
+    padding: 20,
     borderRadius: 18,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.borderSoft,
-    gap: 10,
+    gap: 14,
   },
   inputLabel: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '700' },
   urlInput: {
@@ -515,12 +527,12 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
   localControlCard: {
-    padding: 14,
-    borderRadius: 16,
+    padding: 12,
+    borderRadius: 14,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.borderSoft,
-    gap: 8,
+    gap: 6,
   },
   localControlSub: { color: theme.colors.textMuted, fontSize: 12 },
   localControlStatus: { color: theme.colors.success, fontSize: 12, fontWeight: '700' },
@@ -589,6 +601,11 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.borderSoft,
     gap: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   downloadItemTopRow: {
     flexDirection: 'row',
@@ -633,17 +650,20 @@ export const styles = StyleSheet.create({
   actionRowCentered: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
   playerPage: {
     padding: theme.spacing.lg,
-    gap: theme.spacing.md,
-    paddingBottom: 140,
+    gap: 18,
+    paddingBottom: 40, // MiniPlayer se oculta en el Player → no necesita 140px
   },
   playerArtWrap: {
-    borderRadius: 32,
+    borderRadius: 24,
     overflow: 'hidden',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surfaceRaised,
     borderWidth: 1,
     borderColor: theme.colors.borderSoft,
+    alignSelf: 'center' as const,
+    width: '62%',   // ≈223px — artwork compacto, deja espacio para controles
+    aspectRatio: 1,
   },
-  playerArt: { width: '100%', aspectRatio: 1 },
+  playerArt: { width: '100%', height: '100%' },
   playerArtFallback: {
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
@@ -655,7 +675,7 @@ export const styles = StyleSheet.create({
     justifyContent: 'center' as const,
   },
   playerGlow: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(83, 214, 196, 0.08)',
   },
   playerTitle: { color: theme.colors.text, fontSize: 28, fontWeight: '900' },
@@ -663,12 +683,28 @@ export const styles = StyleSheet.create({
   progressHeader: { flexDirection: 'row', justifyContent: 'space-between' },
   progressTime: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600' },
   playerProgressTrack: {
-    height: 6,
+    height: 8,
     borderRadius: 999,
     backgroundColor: theme.colors.borderSoft,
-    overflow: 'hidden',
+    // Sin overflow:hidden para que el thumb pueda sobresalir
   },
-  playerProgressFill: { height: 6, backgroundColor: theme.colors.primary },
+  playerProgressFill: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: theme.colors.primary,
+  },
+  playerProgressThumb: {
+    position: 'absolute' as const,
+    top: -4,         // (16 - 8) / 2 = centra el thumb sobre la barra
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+    borderWidth: 2,
+    borderColor: theme.colors.background,
+    // translateX para centrar el círculo en el punto exacto
+    transform: [{ translateX: -8 }],
+  },
   circleBtn: {
     width: 44,
     height: 44,

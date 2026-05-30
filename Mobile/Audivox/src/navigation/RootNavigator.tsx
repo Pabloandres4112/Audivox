@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   DarkTheme,
   NavigationContainer,
@@ -61,7 +61,7 @@ const AppTabs = () => {
         left: 14,
         right: 14,
         bottom: insets.bottom + 8,
-        height: 56 + Math.max(0, insets.bottom - 4),
+        height: Math.max(62, 56 + insets.bottom),
         backgroundColor: theme.colors.surfaceRaised,
         borderTopColor: theme.colors.borderSoft,
         borderWidth: 1,
@@ -128,8 +128,17 @@ const AuthFlow = () => (
 );
 export const RootNavigator = () => {
   const profile = useAppStore(s => s.profile);
+  // Ocultar MiniPlayer cuando el PlayerScreen está activo para evitar solapamiento
+  const [isPlayerOpen, setIsPlayerOpen] = useState(false);
+
   return (
-    <NavigationContainer theme={navTheme} ref={navigationRef}>
+    <NavigationContainer
+      theme={navTheme}
+      ref={navigationRef}
+      onStateChange={() => {
+        setIsPlayerOpen(navigationRef.getCurrentRoute()?.name === 'Player');
+      }}
+    >
       <Root.Navigator>
         <Root.Screen
           name={profile ? 'Main' : 'Auth'}
@@ -146,7 +155,7 @@ export const RootNavigator = () => {
           options={{ headerShown: false, presentation: 'modal' }}
         />
       </Root.Navigator>
-      {profile && (
+      {profile && !isPlayerOpen && (
         <MiniPlayer
           onOpen={() => {
             if (navigationRef.isReady()) {
