@@ -5,12 +5,36 @@ import { songs } from '../services/mockData';
 import { Song } from '../types/music';
 
 type Profile = { name: string; email?: string; isGuest: boolean };
+export type ExternalDownloadFormat = 'mp3' | 'm4a' | 'mp4' | 'wav';
+export type ExternalDownloadStatus =
+  | 'queued'
+  | 'downloading'
+  | 'completed'
+  | 'failed';
+export interface ExternalDownload {
+  id: string;
+  url: string;
+  title: string;
+  thumbnailUrl?: string;
+  format: ExternalDownloadFormat;
+  status: ExternalDownloadStatus;
+  progress: number;
+  createdAt: number;
+  completedAt?: number;
+  fileName?: string;
+  sizeLabel?: string;
+  error?: string;
+}
 interface AppState {
   onboardingDone: boolean;
   profile?: Profile;
+  modePreference: 'online' | 'offline';
+  isConnected: boolean;
   likedIds: string[];
   downloadedIds: string[];
   recentIds: string[];
+  externalDownloads: ExternalDownload[];
+  downloadHistory: ExternalDownload[];
   completeOnboarding: () => void;
   login: (p: Profile) => void;
   logout: () => void;
@@ -18,14 +42,28 @@ interface AppState {
   toggleDownload: (id: string) => void;
   markRecent: (id: string) => void;
   likedSongs: () => Song[];
+  setModePreference: (mode: 'online' | 'offline') => void;
+  setConnected: (connected: boolean) => void;
+  enqueueExternalDownload: (download: ExternalDownload) => void;
+  updateExternalDownload: (
+    id: string,
+    patch: Partial<ExternalDownload>,
+  ) => void;
+  addToDownloadHistory: (download: ExternalDownload) => void;
+  removeExternalDownload: (id: string) => void;
+  clearCompletedExternalDownloads: () => void;
 }
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       onboardingDone: false,
+      modePreference: 'online',
+      isConnected: true,
       likedIds: [],
       downloadedIds: [],
       recentIds: [],
+      externalDownloads: [],
+      downloadHistory: [],
       completeOnboarding: () => set({ onboardingDone: true }),
       login: profile => set({ profile }),
       logout: () => set({ profile: undefined }),
@@ -46,6 +84,35 @@ export const useAppStore = create<AppState>()(
           recentIds: [id, ...s.recentIds.filter(x => x !== id)].slice(0, 20),
         })),
       likedSongs: () => songs.filter(s => get().likedIds.includes(s.id)),
+      setModePreference: mode => set({ modePreference: mode }),
+      setConnected: connected => set({ isConnected: connected }),
+      enqueueExternalDownload: download =>
+        set(s => ({
+          externalDownloads: [download, ...s.externalDownloads],
+        })),
+      updateExternalDownload: (id, patch) =>
+        set(s => ({
+          externalDownloads: s.externalDownloads.map(item =>
+            item.id === id ? { ...item, ...patch } : item,
+          ),
+        })),
+      addToDownloadHistory: download =>
+        set(s => ({
+          downloadHistory: [
+            download,
+            ...s.downloadHistory.filter(item => item.id !== download.id),
+          ],
+        })),
+      removeExternalDownload: id =>
+        set(s => ({
+          externalDownloads: s.externalDownloads.filter(item => item.id !== id),
+        })),
+      clearCompletedExternalDownloads: () =>
+        set(s => ({
+          externalDownloads: s.externalDownloads.filter(
+            item => item.status !== 'completed',
+          ),
+        })),
     }),
     {
       name: 'audivox-state',
@@ -53,9 +120,13 @@ export const useAppStore = create<AppState>()(
       partialize: s => ({
         onboardingDone: s.onboardingDone,
         profile: s.profile,
+        modePreference: s.modePreference,
+        isConnected: s.isConnected,
         likedIds: s.likedIds,
         downloadedIds: s.downloadedIds,
         recentIds: s.recentIds,
+        externalDownloads: s.externalDownloads,
+        downloadHistory: s.downloadHistory,
       }),
     },
   ),

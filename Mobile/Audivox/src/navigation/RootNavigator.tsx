@@ -6,6 +6,7 @@ import {
 } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { MiniPlayer } from '../components/music/MiniPlayer';
 import { useAppStore } from '../store/useAppStore';
@@ -44,24 +45,30 @@ const navTheme = {
     primary: theme.colors.primary,
   },
 };
-const AppTabs = () => (
-  <Tab.Navigator
-    screenOptions={({ route }) => ({
+const AppTabs = () => {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
       headerShown: false,
       tabBarShowLabel: true,
+      sceneStyle: {
+        paddingTop: Math.max(insets.top, 6),
+      },
       tabBarStyle: {
         position: 'absolute',
         left: 14,
         right: 14,
-        bottom: 14,
-        height: 74,
+        bottom: insets.bottom + 10,
+        height: 74 + Math.max(0, insets.bottom - 4),
         backgroundColor: theme.colors.surfaceRaised,
         borderTopColor: theme.colors.borderSoft,
         borderWidth: 1,
         borderColor: theme.colors.borderSoft,
         borderRadius: 26,
         paddingTop: 6,
-        paddingBottom: 8,
+        paddingBottom: Math.max(8, insets.bottom),
         shadowColor: '#000',
         shadowOpacity: 0.3,
         shadowRadius: 18,
@@ -88,29 +95,30 @@ const AppTabs = () => (
         />
       ),
     })}
-  >
-    <Tab.Screen
-      name="HomeTab"
-      component={HomeScreen}
-      options={{ title: 'Home' }}
-    />
-    <Tab.Screen
-      name="SearchTab"
-      component={SearchScreen}
-      options={{ title: 'Search' }}
-    />
-    <Tab.Screen
-      name="LibraryTab"
-      component={LibraryScreen}
-      options={{ title: 'Library' }}
-    />
-    <Tab.Screen
-      name="DownloadsTab"
-      component={DownloadsScreen}
-      options={{ title: 'Downloads' }}
-    />
-  </Tab.Navigator>
-);
+    >
+      <Tab.Screen
+        name="HomeTab"
+        component={HomeScreen}
+        options={{ title: 'Home' }}
+      />
+      <Tab.Screen
+        name="SearchTab"
+        component={SearchScreen}
+        options={{ title: 'Search' }}
+      />
+      <Tab.Screen
+        name="LibraryTab"
+        component={LibraryScreen}
+        options={{ title: 'Library' }}
+      />
+      <Tab.Screen
+        name="DownloadsTab"
+        component={DownloadsScreen}
+        options={{ title: 'Downloads' }}
+      />
+    </Tab.Navigator>
+  );
+};
 const AuthFlow = () => (
   <Auth.Navigator screenOptions={{ headerShown: false }}>
     <Auth.Screen name="Welcome" component={WelcomeScreen} />

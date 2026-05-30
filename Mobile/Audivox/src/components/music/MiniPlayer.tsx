@@ -2,10 +2,12 @@ import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { MotiView } from 'moti';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePlayerStore } from '../../store/usePlayerStore';
 import { theme } from '../../theme';
 import { formatTime } from '../../utils/time';
 export const MiniPlayer = ({ onOpen }: { onOpen: () => void }) => {
+  const insets = useSafeAreaInsets();
   const { current, isPlaying, togglePlay, next, progress } = usePlayerStore();
   if (!current) return null;
   const ratio = Math.min(1, progress / current.duration);
@@ -14,7 +16,7 @@ export const MiniPlayer = ({ onOpen }: { onOpen: () => void }) => {
       from={{ translateY: 80, opacity: 0 }}
       animate={{ translateY: 0, opacity: 1 }}
       transition={{ type: 'timing', duration: 280 }}
-      style={styles.box}
+      style={[styles.box, { bottom: insets.bottom + 88 }]}
     >
       <Pressable onPress={onOpen} style={styles.track}>
         <Image source={{ uri: current.artwork }} style={styles.cover} />
@@ -51,7 +53,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 14,
     right: 14,
-    bottom: 92,
     backgroundColor: theme.colors.surfaceRaised,
     borderRadius: theme.radius.xl,
     padding: 12,

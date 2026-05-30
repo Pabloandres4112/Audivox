@@ -18,6 +18,9 @@ export const HomeScreen = ({
   navigation,
 }: BottomTabScreenProps<MainTabParamList, 'HomeTab'>) => {
   const profile = useAppStore(s => s.profile);
+  const modePreference = useAppStore(s => s.modePreference);
+  const setModePreference = useAppStore(s => s.setModePreference);
+  const isConnected = useAppStore(s => s.isConnected);
   const d = musicService.home();
   const play = usePlayerStore(s => s.playSong);
   const mark = useAppStore(s => s.markRecent);
@@ -26,6 +29,7 @@ export const HomeScreen = ({
     artists.find(a => a.id === topSong.artistId)?.name || 'Unknown';
   const likedCount = useAppStore(s => s.likedIds.length);
   const downloadedCount = useAppStore(s => s.downloadedIds.length);
+  const effectiveMode = isConnected ? modePreference : 'offline';
 
   return (
     <ScrollView contentContainerStyle={styles.scrollPage}>
@@ -37,7 +41,7 @@ export const HomeScreen = ({
       >
         <View style={styles.topBar}>
           <View>
-            <Text style={styles.topKicker}>Good evening</Text>
+            <Text style={styles.topKicker}>Bienvenido</Text>
             <Text style={styles.topTitle}>{profile?.name || 'Listener'}</Text>
           </View>
           <View style={styles.avatarBubble}>
@@ -46,6 +50,69 @@ export const HomeScreen = ({
               size={28}
               color={theme.colors.primary}
             />
+          </View>
+        </View>
+
+        <View style={styles.modeSwitchCard}>
+          <View style={styles.modeSwitchHeaderRow}>
+            <Text style={styles.modeSwitchTitle}>Modo de reproduccion</Text>
+            {!isConnected ? (
+              <Text style={styles.offlineAutoPill}>Sin internet: Offline auto</Text>
+            ) : (
+              <Text style={styles.onlinePill}>Conectado</Text>
+            )}
+          </View>
+          <View style={styles.modeSwitchRow}>
+            <Pressable
+              onPress={() => setModePreference('online')}
+              style={[
+                styles.modeChip,
+                effectiveMode === 'online' && styles.modeChipActive,
+              ]}
+            >
+              <Icon
+                name="wifi-outline"
+                size={14}
+                color={
+                  effectiveMode === 'online'
+                    ? theme.colors.background
+                    : theme.colors.text
+                }
+              />
+              <Text
+                style={[
+                  styles.modeChipText,
+                  effectiveMode === 'online' && styles.modeChipTextActive,
+                ]}
+              >
+                Online
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setModePreference('offline')}
+              style={[
+                styles.modeChip,
+                effectiveMode === 'offline' && styles.modeChipActive,
+              ]}
+            >
+              <Icon
+                name="cloud-download-outline"
+                size={14}
+                color={
+                  effectiveMode === 'offline'
+                    ? theme.colors.background
+                    : theme.colors.text
+                }
+              />
+              <Text
+                style={[
+                  styles.modeChipText,
+                  effectiveMode === 'offline' && styles.modeChipTextActive,
+                ]}
+              >
+                Offline
+              </Text>
+            </Pressable>
           </View>
         </View>
 
@@ -85,9 +152,37 @@ export const HomeScreen = ({
           </Pressable>
         </View>
 
+        <View style={styles.spotlightGrid}>
+          <Pressable
+            style={[styles.spotlightTile, styles.spotlightWideTile]}
+            onPress={async () => {
+              await playAndOpen(topSong.id, play, mark, navigation as never);
+            }}
+          >
+            <Image source={{ uri: topSong.artwork }} style={styles.spotlightCover} />
+            <Text numberOfLines={2} style={styles.spotlightText}>
+              {topSong.title}
+            </Text>
+          </Pressable>
+          {d.trending.slice(1, 5).map(song => (
+            <Pressable
+              key={song.id}
+              style={styles.spotlightTile}
+              onPress={async () => {
+                await playAndOpen(song.id, play, mark, navigation as never);
+              }}
+            >
+              <Image source={{ uri: song.artwork }} style={styles.spotlightCover} />
+              <Text numberOfLines={2} style={styles.spotlightText}>
+                {song.title}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
         <HeroPanel
           title={topSong.title}
-          subtitle={`${topArtist} · ${formatTime(topSong.duration)} · Featured track`}
+          subtitle={`${topArtist} · ${formatTime(topSong.duration)} · Seleccion del dia`}
           image={topSong.artwork}
           onPress={async () => {
             await playAndOpen(topSong.id, play, mark, navigation as never);
@@ -105,10 +200,10 @@ export const HomeScreen = ({
         </View>
 
         <View style={styles.quickActions}>
-          <Chip label="Trending" active />
-          <Chip label="Albums" />
-          <Chip label="Playlists" />
-          <Chip label="Recent" />
+          <Chip label="Todo" active />
+          <Chip label="Musica" />
+          <Chip label="Podcasts" />
+          <Chip label="Nuevos" />
         </View>
 
         <SectionHeader
