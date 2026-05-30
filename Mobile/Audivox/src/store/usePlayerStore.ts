@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { songs } from '../services/mockData';
 import { playerService } from '../services/playerService';
 import { Song } from '../types/music';
+
 interface PlayerState {
   current?: Song;
   queue: Song[];
@@ -9,7 +9,8 @@ interface PlayerState {
   progress: number;
   shuffle: boolean;
   repeat: 'off' | 'all' | 'one';
-  playSong: (song: Song) => Promise<void>;
+  playSong: (song: Song) => Promise<boolean>;
+  addToQueue: (song: Song) => void;
   togglePlay: () => Promise<void>;
   next: () => Promise<void>;
   previous: () => Promise<void>;
@@ -17,56 +18,78 @@ interface PlayerState {
   toggleShuffle: () => void;
   toggleRepeat: () => void;
 }
+
 export const usePlayerStore = create<PlayerState>((set, get) => ({
-  current: songs[0],
-  queue: songs,
+  current: undefined,
+  queue: [],
   isPlaying: false,
   progress: 0,
   shuffle: false,
   repeat: 'off',
-  playSong: async song => {
-    await playerService.play(song);
-    set({ current: song, isPlaying: true, progress: 0 });
+
+  playSong: async (song: Song): Promise<boolean> => {
+    const ok = await playerService.play(song);
+    if (ok) {
+      set(s => ({
+        current: song,
+        isPlaying: true,
+        progress: 0,
+        // Agregar a queue si no está
+        queue: s.queue.find(q => q.id === song.id)
+          ? s.queue
+          : [song, ...s.queue],
+      }));
+    }
+    return ok;
   },
+
+  addToQueue: (song: Song) =>
+    set(s => ({
+      queue: s.queue.find(q => q.id === song.id)
+        ? s.queue
+        : [...s.queue, song],
+    })),
+
   togglePlay: async () => {
     const { isPlaying, current } = get();
     if (!current) return;
-    if (isPlaying) await playerService.pause();
-    else await playerService.play(current);
-    set({ isPlaying: !isPlaying });
+    if (isPlaying) {
+      const ok = await playerService.pause();
+      if (ok) set({ isPlaying: false });
+    } else {
+      const ok = await playerService.play(current);
+      if (ok) set({ isPlaying: true });
+    }
   },
+
   next: async () => {
     const { queue, current, shuffle, repeat } = get();
-    if (!current) return;
+    if (!current || queue.length === 0) return;
     const i = queue.findIndex(s => s.id === current.id);
     const n = shuffle
-      ? queue.length <= 1
-        ? i
-        : (() => {
-            const randomIndexes = queue
-              .map((_, index) => index)
-              .filter(index => index !== i);
-            return randomIndexes[
-              Math.floor(Math.random() * randomIndexes.length)
-            ];
-          })()
+      ? (() => {
+          const rest = queue.map((_, idx) => idx).filter(idx => idx !== i);
+          return rest.length > 0
+            ? rest[Math.floor(Math.random() * rest.length)]
+            : i;
+        })()
       : i + 1 >= queue.length
-      ? repeat === 'all'
-        ? 0
-        : i
+      ? repeat === 'all' ? 0 : i
       : i + 1;
     const song = queue[n];
-    await playerService.play(song);
-    set({ current: song, isPlaying: true, progress: 0 });
+    const ok = await playerService.play(song);
+    if (ok) set({ current: song, isPlaying: true, progress: 0 });
   },
+
   previous: async () => {
     const { queue, current } = get();
-    if (!current) return;
+    if (!current || queue.length === 0) return;
     const i = queue.findIndex(s => s.id === current.id);
-    const song = queue[i - 1] || queue[0];
-    await playerService.play(song);
-    set({ current: song, isPlaying: true, progress: 0 });
+    const song = queue[Math.max(0, i - 1)];
+    const ok = await playerService.play(song);
+    if (ok) set({ current: song, isPlaying: true, progress: 0 });
   },
+
   seek: v => set({ progress: v }),
   toggleShuffle: () => set(s => ({ shuffle: !s.shuffle })),
   toggleRepeat: () =>

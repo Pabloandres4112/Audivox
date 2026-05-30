@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -9,46 +9,45 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { EmptyBlock } from '../components/common/StateBlocks';
-import { SongCard } from '../components/music/SongCard';
-import { artists, songs } from '../services/mockData';
 import { localMediaService, LocalMediaItem } from '../services/localMediaService';
-import { usePlayerStore } from '../store/usePlayerStore';
 import {
+  ExternalDownload,
   ExternalDownloadFormat,
   ExternalDownloadStatus,
   useAppStore,
 } from '../store/useAppStore';
+import { usePlayerStore } from '../store/usePlayerStore';
+import { theme } from '../theme';
 import { styles } from './styles';
 
-const FORMATS: ExternalDownloadFormat[] = ['mp3', 'm4a', 'mp4', 'wav'];
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const FORMATS: ExternalDownloadFormat[] = ['mp3', 'm4a', 'wav'];
 
 const youtubeRegex =
   /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[a-zA-Z0-9_-]{6,}/;
 
-const titleFromUrl = (url: string) => {
-  const match = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{6,})/);
-  const id = match?.[1] || 'track';
-  return `YouTube audio ${id}`;
+const STATUS_LABEL: Record<ExternalDownloadStatus, string> = {
+  queued: 'En cola',
+  downloading: 'Descargando',
+  completed: 'Completado',
+  failed: 'Error',
 };
 
-const statusText = (status: ExternalDownloadStatus) =>
-  (
-    {
-      queued: 'En cola',
-      downloading: 'Descargando',
-      completed: 'Completado',
-      failed: 'Error',
-    } as const
-  )[status];
+const STATUS_COLOR: Record<ExternalDownloadStatus, string> = {
+  queued: theme.colors.textMuted,
+  downloading: theme.colors.primary,
+  completed: theme.colors.success,
+  failed: theme.colors.danger,
+};
 
-const buildSafeFileName = (title: string, format: ExternalDownloadFormat) => {
-  const base = title
-    .replace(/[^a-zA-Z0-9-_ ]/g, '')
-    .trim()
-    .replace(/\s+/g, '_')
-    .slice(0, 40);
-  return `${base || `track_${Date.now()}`}.${format}`;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const titleFromUrl = (url: string) => {
+  const m = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{6,})/);
+  return `YouTube ${m?.[1] ?? 'audio'}`;
 };
 
 const dateLabel = (ts?: number) => {
@@ -57,44 +56,196 @@ const dateLabel = (ts?: number) => {
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
 };
 
-const fetchYoutubeMetadata = async (url: string) => {
+const fetchYoutubeMeta = async (url: string) => {
   try {
-    const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
-    const response = await fetch(endpoint);
-    if (!response.ok) {
-      return null;
-    }
-    const data = (await response.json()) as {
-      title?: string;
-      thumbnail_url?: string;
-    };
-    return {
-      title: data.title,
-      thumbnailUrl: data.thumbnail_url,
-    };
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
+    );
+    if (!res.ok) return null;
+    const d = (await res.json()) as { title?: string; thumbnail_url?: string };
+    return { title: d.title, thumbnailUrl: d.thumbnail_url };
   } catch {
     return null;
   }
 };
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+type DownloadItemCardProps = {
+  item: ExternalDownload;
+  isPlaying: boolean;
+  onPlay: () => void;
+  onRetry: () => void;
+  onRemove: () => void;
+};
+
+const DownloadItemCard = ({
+  item,
+  isPlaying,
+  onPlay,
+  onRetry,
+  onRemove,
+}: DownloadItemCardProps) => (
+  <View style={styles.downloadItemCard}>
+    <View style={styles.dlCardRow}>
+      {item.thumbnailUrl ? (
+        <Image source={{ uri: item.thumbnailUrl }} style={styles.dlThumb} />
+      ) : (
+        <View style={[styles.dlThumb, styles.dlThumbFallback]}>
+          <Icon name="musical-note-outline" size={20} color={theme.colors.primary} />
+        </View>
+      )}
+
+      <View style={{ flex: 1, gap: 3 }}>
+        <Text style={styles.downloadItemTitle} numberOfLines={1}>
+          {item.title}
+        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+          <Text style={[styles.downloadItemMeta, { color: STATUS_COLOR[item.status] }]}>
+            {STATUS_LABEL[item.status]}
+          </Text>
+          <Text style={styles.downloadItemMeta}>·</Text>
+          <Text style={styles.downloadItemFormat}>{item.format.toUpperCase()}</Text>
+          {item.sizeLabel ? (
+            <>
+              <Text style={styles.downloadItemMeta}>·</Text>
+              <Text style={styles.downloadItemMeta}>{item.sizeLabel}</Text>
+            </>
+          ) : null}
+        </View>
+        {item.error ? (
+          <Text style={[styles.downloadItemMeta, { color: theme.colors.danger }]} numberOfLines={2}>
+            {item.error}
+          </Text>
+        ) : null}
+        {isPlaying ? (
+          <View style={styles.nowPlayingBadge}>
+            <Icon name="musical-notes-outline" size={11} color={theme.colors.success} />
+            <Text style={styles.nowPlayingInline}>Reproduciendo</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {item.status === 'completed' ? (
+        <Pressable
+          onPress={onPlay}
+          style={[styles.dlPlayBtn, isPlaying && styles.dlPlayBtnPlaying]}
+          hitSlop={8}
+        >
+          <Icon
+            name={isPlaying ? 'pause' : 'play'}
+            size={18}
+            color={theme.colors.background}
+          />
+        </Pressable>
+      ) : item.status === 'downloading' ? (
+        <ActivityIndicator size="small" color={theme.colors.primary} />
+      ) : item.status === 'queued' ? (
+        <Icon name="time-outline" size={20} color={theme.colors.textMuted} />
+      ) : (
+        <Icon name="alert-circle-outline" size={20} color={theme.colors.danger} />
+      )}
+    </View>
+
+    {item.status === 'downloading' && (
+      <View style={styles.downloadProgressTrack}>
+        <View
+          style={[
+            styles.downloadProgressFill,
+            { width: `${Math.max(2, item.progress)}%` },
+          ]}
+        />
+      </View>
+    )}
+
+    <View style={styles.dlActionsRow}>
+      <Text style={styles.downloadItemMeta}>
+        {item.status === 'downloading' ? `${item.progress}%` : dateLabel(item.createdAt)}
+      </Text>
+      <View style={{ flexDirection: 'row', gap: 6 }}>
+        {(item.status === 'failed' || item.status === 'completed') && (
+          <Pressable onPress={onRetry} style={styles.dlActionBtn}>
+            <Icon name="refresh-outline" size={12} color={theme.colors.textMuted} />
+            <Text style={styles.dlActionBtnText}>Reintentar</Text>
+          </Pressable>
+        )}
+        <Pressable onPress={onRemove} style={styles.dlActionBtn}>
+          <Icon name="trash-outline" size={12} color={theme.colors.danger} />
+          <Text style={styles.dlDangerText}>Eliminar</Text>
+        </Pressable>
+      </View>
+    </View>
+  </View>
+);
+
+type HistoryCardProps = {
+  item: ExternalDownload;
+  isPlaying: boolean;
+  onPlay: () => void;
+  onRemove: () => void;
+};
+
+const HistoryCard = ({ item, isPlaying, onPlay, onRemove }: HistoryCardProps) => (
+  <View style={styles.historyCard}>
+    {item.thumbnailUrl ? (
+      <Image source={{ uri: item.thumbnailUrl }} style={styles.historyThumb} />
+    ) : (
+      <View style={[styles.historyThumb, styles.historyThumbFallback]}>
+        <Icon name="musical-note-outline" size={22} color={theme.colors.primary} />
+      </View>
+    )}
+    <View style={{ flex: 1, gap: 2 }}>
+      <Text style={styles.downloadItemTitle} numberOfLines={1}>
+        {item.title}
+      </Text>
+      <Text style={styles.downloadItemMeta} numberOfLines={1}>
+        {item.fileName || '-'}
+      </Text>
+      <Text style={styles.downloadItemMeta}>
+        {item.format.toUpperCase()} · {item.sizeLabel || '-'} · {dateLabel(item.completedAt)}
+      </Text>
+      {isPlaying ? (
+        <View style={styles.nowPlayingBadge}>
+          <Icon name="musical-notes-outline" size={11} color={theme.colors.success} />
+          <Text style={styles.nowPlayingInline}>Reproduciendo</Text>
+        </View>
+      ) : null}
+    </View>
+    <View style={{ gap: 6, alignItems: 'center' }}>
+      <Pressable
+        onPress={onPlay}
+        style={[styles.dlPlayBtn, isPlaying && styles.dlPlayBtnPlaying]}
+        hitSlop={8}
+      >
+        <Icon name={isPlaying ? 'pause' : 'play'} size={17} color={theme.colors.background} />
+      </Pressable>
+      <Pressable onPress={onRemove} hitSlop={10}>
+        <Icon name="trash-outline" size={16} color={theme.colors.danger} />
+      </Pressable>
+    </View>
+  </View>
+);
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
+
 export const DownloadsScreen = () => {
-  const ids = useAppStore(s => s.downloadedIds);
-  const toggle = useAppStore(s => s.toggleDownload);
   const externalDownloads = useAppStore(s => s.externalDownloads);
   const enqueueExternalDownload = useAppStore(s => s.enqueueExternalDownload);
   const updateExternalDownload = useAppStore(s => s.updateExternalDownload);
   const addToDownloadHistory = useAppStore(s => s.addToDownloadHistory);
   const removeExternalDownload = useAppStore(s => s.removeExternalDownload);
+  const removeFromDownloadHistory = useAppStore(s => s.removeFromDownloadHistory);
+  const clearDownloadHistory = useAppStore(s => s.clearDownloadHistory);
   const downloadHistory = useAppStore(s => s.downloadHistory);
-  const clearCompletedExternalDownloads = useAppStore(
-    s => s.clearCompletedExternalDownloads,
-  );
+  const clearCompletedExternalDownloads = useAppStore(s => s.clearCompletedExternalDownloads);
+
   const playSong = usePlayerStore(s => s.playSong);
-  const currentSongId = usePlayerStore(s => s.current?.id);
+  const currentSong = usePlayerStore(s => s.current);
+  const isPlayerPlaying = usePlayerStore(s => s.isPlaying);
 
   const [url, setUrl] = useState('');
   const [format, setFormat] = useState<ExternalDownloadFormat>('mp3');
-  const [error, setError] = useState<string | null>(null);
+  const [errorText, setErrorText] = useState<string | null>(null);
   const [successText, setSuccessText] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
@@ -102,11 +253,10 @@ export const DownloadsScreen = () => {
   const [storageGranted, setStorageGranted] = useState(false);
   const [audioFiles, setAudioFiles] = useState<LocalMediaItem[]>([]);
   const [imageFiles, setImageFiles] = useState<LocalMediaItem[]>([]);
-  const [localStatus, setLocalStatus] = useState('Pendiente de permisos');
+  const [localStatus, setLocalStatus] = useState('Permisos pendientes');
 
-  const activeTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({});
-
-  const list = songs.filter(song => ids.includes(song.id));
+  // Tracking activo de descargas (para cancelación futura)
+  const activeDownloads = React.useRef<Set<string>>(new Set());
 
   const sortedExternalDownloads = useMemo(
     () =>
@@ -125,121 +275,118 @@ export const DownloadsScreen = () => {
       ),
     [downloadHistory],
   );
+
   const recentHistory = sortedHistory.slice(0, 3);
 
-  useEffect(
-    () => () => {
-      Object.values(activeTimers.current).forEach(timer => clearInterval(timer));
-      activeTimers.current = {};
-    },
-    [],
-  );
+  const playingItemId = useMemo(() => {
+    if (!currentSong || !isPlayerPlaying) return null;
+    return currentSong.id.startsWith('ext-') ? currentSong.id.slice(4) : null;
+  }, [currentSong, isPlayerPlaying]);
 
   useEffect(() => {
-    const init = async () => {
-      const path = await localMediaService.ensureAudivoxFolder();
-      setFolderPath(path);
-    };
-    init();
+    if (!successText) return;
+    const t = setTimeout(() => setSuccessText(null), 6000);
+    return () => clearTimeout(t);
+  }, [successText]);
+
+  useEffect(() => {
+    if (!errorText) return;
+    const t = setTimeout(() => setErrorText(null), 8000);
+    return () => clearTimeout(t);
+  }, [errorText]);
+
+  useEffect(() => {
+    localMediaService.ensureAudivoxFolder().then(setFolderPath).catch(() => {});
   }, []);
 
   const requestStorage = async () => {
     const result = await localMediaService.requestStoragePermissions();
     setStorageGranted(result.granted);
-    setLocalStatus(result.granted ? 'Permiso concedido' : 'Permiso denegado');
+    setLocalStatus(result.granted ? 'Permisos concedidos' : 'Permisos denegados');
   };
 
   const scanLocalFolder = async () => {
     if (!storageGranted) {
-      setLocalStatus('Primero concede permisos de almacenamiento');
+      setLocalStatus('Concede permisos primero.');
       return;
     }
     const scan = await localMediaService.scanAudivoxFolder();
     setFolderPath(scan.dir);
     setAudioFiles(scan.audio);
     setImageFiles(scan.images);
-    setLocalStatus(
-      `Escaneo listo: ${scan.audio.length} audio, ${scan.images.length} imagenes`,
-    );
+    setLocalStatus(`Listo: ${scan.audio.length} audio · ${scan.images.length} imágenes`);
   };
 
-  const startSimulatedDownload = (id: string) => {
+  // ── Descarga real vía cobalt.tools ──────────────────────────────────────────
+  const performDownload = async (id: string) => {
+    const snapshot = useAppStore.getState().externalDownloads.find(d => d.id === id);
+    if (!snapshot) return;
+
+    activeDownloads.current.add(id);
     updateExternalDownload(id, { status: 'downloading', progress: 1, error: undefined });
-    if (activeTimers.current[id]) {
-      clearInterval(activeTimers.current[id]);
-    }
 
-    activeTimers.current[id] = setInterval(() => {
-      const current = useAppStore
-        .getState()
-        .externalDownloads.find(item => item.id === id);
+    try {
+      const result = await localMediaService.downloadYouTubeAudio(
+        snapshot.url,
+        snapshot.title,
+        snapshot.format,
+        snapshot.thumbnailUrl,
+        (pct) => {
+          if (activeDownloads.current.has(id)) {
+            updateExternalDownload(id, { progress: pct });
+          }
+        },
+      );
 
-      if (!current) {
-        clearInterval(activeTimers.current[id]);
-        delete activeTimers.current[id];
-        return;
-      }
+      if (!activeDownloads.current.has(id)) return; // fue eliminado
 
-      const next = Math.min(100, current.progress + Math.floor(8 + Math.random() * 18));
-      const isDone = next >= 100;
-      const fileName = buildSafeFileName(current.title, current.format);
+      const completedAt = Date.now();
+      const fresh = useAppStore.getState().externalDownloads.find(d => d.id === id);
+      if (!fresh) return;
+
+      const completedItem: ExternalDownload = {
+        ...fresh,
+        status: 'completed',
+        progress: 100,
+        completedAt,
+        fileName: result.fileName,
+        sizeLabel: result.sizeLabel,
+      };
 
       updateExternalDownload(id, {
-        progress: next,
-        status: isDone ? 'completed' : 'downloading',
-        completedAt: isDone ? Date.now() : current.completedAt,
-        fileName,
-        sizeLabel: isDone
-          ? `${(2.8 + Math.random() * 6.6).toFixed(1)} MB`
-          : current.sizeLabel,
+        status: 'completed',
+        progress: 100,
+        completedAt,
+        fileName: result.fileName,
+        sizeLabel: result.sizeLabel,
       });
+      addToDownloadHistory(completedItem);
+      setSuccessText(`Descarga exitosa: ${result.fileName} (${result.sizeLabel ?? ''})`);
+      setLocalStatus('Archivo guardado en AudivoxMusic');
 
-      if (isDone) {
-        const completedAt = Date.now();
-        const completedItem = {
-          ...current,
-          status: 'completed' as const,
-          progress: 100,
-          completedAt,
-          fileName,
-          sizeLabel: `${(2.8 + Math.random() * 6.6).toFixed(1)} MB`,
-        };
-
-        localMediaService
-          .saveDemoDownloadedFile(
-            current.title,
-            current.format,
-            current.url,
-            current.thumbnailUrl,
-          )
-          .then(() => {
-            addToDownloadHistory(completedItem);
-            setSuccessText(`Descarga exitosa: ${completedItem.fileName}`);
-            setLocalStatus('Descarga exitosa y archivo guardado en AudivoxMusic');
-          })
-          .catch(() => {
-            setLocalStatus('No se pudo guardar archivo demo local');
-          });
-        clearInterval(activeTimers.current[id]);
-        delete activeTimers.current[id];
-      }
-    }, 750);
+    } catch (err) {
+      if (!activeDownloads.current.has(id)) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      updateExternalDownload(id, { status: 'failed', progress: 0, error: msg });
+      setErrorText(msg);
+    } finally {
+      activeDownloads.current.delete(id);
+    }
   };
 
   const submitDownload = async () => {
     const cleanUrl = url.trim();
     if (!youtubeRegex.test(cleanUrl)) {
-      setError('Pega una URL valida de YouTube (youtube.com o youtu.be).');
+      setErrorText('URL inválida. Usa youtube.com o youtu.be');
       return;
     }
-
     setIsSubmitting(true);
-    setError(null);
+    setErrorText(null);
     setSuccessText(null);
 
-    const meta = await fetchYoutubeMetadata(cleanUrl);
-
+    const meta = await fetchYoutubeMeta(cleanUrl);
     const id = `ext-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
+
     enqueueExternalDownload({
       id,
       url: cleanUrl,
@@ -251,93 +398,113 @@ export const DownloadsScreen = () => {
       createdAt: Date.now(),
     });
     setUrl('');
-    startSimulatedDownload(id);
     setIsSubmitting(false);
+
+    // Inicia descarga real (no bloquea el UI)
+    performDownload(id);
   };
 
   const removeItem = (id: string) => {
-    if (activeTimers.current[id]) {
-      clearInterval(activeTimers.current[id]);
-      delete activeTimers.current[id];
-    }
+    activeDownloads.current.delete(id); // cancela callback de progreso
     removeExternalDownload(id);
   };
 
-  const toPlayableSong = (
-    item: {
-      id: string;
-      title: string;
-      thumbnailUrl?: string;
-      fileName?: string;
-      url: string;
-      completedAt?: number;
-    },
-    format: ExternalDownloadFormat,
-  ) => ({
-    id: `ext-${item.id}`,
-    title: item.title,
-    artistId: 'a1',
-    albumId: 'al1',
-    duration: 220,
-    artwork: item.thumbnailUrl || songs[0].artwork,
-    streamUrl: item.fileName
-      ? `file://${localMediaService.getAudivoxMusicDir()}/${item.fileName}`
-      : item.url,
-  });
-
-  const handlePlayExternal = async (
-    item: {
-      id: string;
-      title: string;
-      thumbnailUrl?: string;
-      fileName?: string;
-      url: string;
-      status?: ExternalDownloadStatus;
-    },
-    format: ExternalDownloadFormat,
-  ) => {
+  const handlePlayItem = async (item: {
+    id: string;
+    title: string;
+    thumbnailUrl?: string;
+    fileName?: string;
+    url: string;
+    status?: ExternalDownloadStatus;
+    format: ExternalDownloadFormat;
+  }) => {
     if (item.status && item.status !== 'completed') {
-      setLocalStatus('Espera a que finalice la descarga para reproducir.');
+      setLocalStatus('Espera a que la descarga finalice para reproducir.');
       return;
     }
-    const playable = toPlayableSong(item, format);
-    await playSong(playable);
-    setSuccessText(`Reproduciendo: ${item.title}`);
+
+    const dir = localMediaService.getAudivoxMusicDir();
+    const localUri = item.fileName ? `file://${dir}/${item.fileName}` : null;
+
+    const song = {
+      id: `ext-${item.id}`,
+      title: item.title,
+      artistId: 'a1',
+      albumId: 'al1',
+      duration: 0,
+      artwork: item.thumbnailUrl ?? '',
+      streamUrl: localUri ?? '',
+    };
+
+    if (!localUri) {
+      setErrorText('No hay archivo local. Descarga la canción primero.');
+      return;
+    }
+
+    const ok = await playSong(song);
+
+    if (ok) {
+      setSuccessText(`Reproduciendo: ${item.title}`);
+      setErrorText(null);
+    } else {
+      setErrorText(
+        'No se pudo reproducir. El archivo puede estar corrupto o no es audio válido.',
+      );
+    }
   };
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <ScrollView contentContainerStyle={styles.scrollPage}>
-      <Text style={styles.pageTitle}>Descargas</Text>
-      <Text style={styles.pageSub}>
-        Pega una URL de YouTube para descargar en el formato que elijas.
-      </Text>
+
+      <View>
+        <Text style={styles.pageTitle}>Descargas</Text>
+        <Text style={styles.pageSub}>Descarga música de YouTube y escúchala offline.</Text>
+      </View>
 
       {successText ? (
         <View style={styles.successBanner}>
+          <Icon name="checkmark-circle-outline" size={14} color={theme.colors.success} />
           <Text style={styles.successBannerText}>{successText}</Text>
         </View>
       ) : null}
 
+      {errorText ? (
+        <View style={styles.errorBanner}>
+          <Icon name="alert-circle-outline" size={14} color={theme.colors.danger} />
+          <Text style={styles.errorBannerText}>{errorText}</Text>
+        </View>
+      ) : null}
+
+      {/* ── Permisos y escaneo ── */}
       <View style={styles.localControlCard}>
-        <Text style={styles.inputLabel}>Modo local (almacenamiento)</Text>
-        <Text style={styles.localControlSub} numberOfLines={2}>
-          Carpeta: {folderPath || 'Cargando...'}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Icon name="folder-open-outline" size={15} color={theme.colors.primary} />
+          <Text style={styles.inputLabel}>Carpeta: {folderPath || 'Inicializando...'}</Text>
+        </View>
         <View style={styles.localControlActions}>
           <Pressable onPress={requestStorage} style={styles.secondaryButton}>
             <Text style={styles.secondaryButtonText}>Pedir permisos</Text>
           </Pressable>
           <Pressable onPress={scanLocalFolder} style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Escanear carpeta</Text>
+            <Text style={styles.secondaryButtonText}>Escanear</Text>
           </Pressable>
         </View>
-        <Text style={styles.localControlStatus}>{localStatus}</Text>
-        <Text style={styles.localControlSub}>
-          Audio: {audioFiles.length} · Imagenes: {imageFiles.length}
+        <Text style={[styles.localControlStatus, !storageGranted && { color: theme.colors.textMuted }]}>
+          {localStatus}
         </Text>
+        {(audioFiles.length > 0 || imageFiles.length > 0) && (
+          <Text style={styles.localControlSub}>
+            Audio: {audioFiles.length} · Imágenes: {imageFiles.length}
+          </Text>
+        )}
       </View>
 
+      {/* ── Descargador ── */}
       <View style={styles.downloaderCard}>
+        <Text style={styles.sectionTitle}>Nueva descarga</Text>
+
         <Text style={styles.inputLabel}>URL de YouTube</Text>
         <TextInput
           value={url}
@@ -347,195 +514,131 @@ export const DownloadsScreen = () => {
           autoCorrect={false}
           keyboardType="url"
           placeholder="https://youtu.be/..."
-          placeholderTextColor="#8492b2"
+          placeholderTextColor={theme.colors.textMuted}
         />
 
-        <Text style={styles.inputLabel}>Formato de salida</Text>
+        <Text style={styles.inputLabel}>Formato</Text>
         <View style={styles.formatRow}>
-          {FORMATS.map(item => (
+          {FORMATS.map(f => (
             <Pressable
-              key={item}
-              onPress={() => setFormat(item)}
-              style={[
-                styles.formatButton,
-                format === item && styles.formatButtonActive,
-              ]}
+              key={f}
+              onPress={() => setFormat(f)}
+              style={[styles.formatButton, format === f && styles.formatButtonActive]}
             >
               <Text
                 style={[
                   styles.formatButtonText,
-                  format === item && styles.formatButtonTextActive,
+                  format === f && styles.formatButtonTextActive,
                 ]}
               >
-                {item.toUpperCase()}
+                {f.toUpperCase()}
               </Text>
             </Pressable>
           ))}
         </View>
 
-        {error ? <Text style={styles.downloaderError}>{error}</Text> : null}
-
-        <Pressable
-          onPress={submitDownload}
-          style={styles.primaryButton}
-          disabled={isSubmitting}
-        >
+        <Pressable onPress={submitDownload} style={styles.primaryButton} disabled={isSubmitting}>
           {isSubmitting ? (
-            <ActivityIndicator color="#070B12" />
+            <ActivityIndicator color={theme.colors.background} />
           ) : (
-            <Text style={styles.primaryButtonText}>Agregar descarga</Text>
+            <Text style={styles.primaryButtonText}>Descargar</Text>
           )}
         </Pressable>
 
-        <Text style={styles.downloaderHint}>
-          Nota: descarga simulada UI. Al completar, se crea archivo demo local para
-          validar permiso y escaneo.
-        </Text>
+        <View style={styles.demoBanner}>
+          <Icon name="information-circle-outline" size={13} color={theme.colors.accent} />
+          <Text style={styles.demoBannerText}>
+            Usa cobalt.tools para obtener el audio real. Si la API falla, la descarga
+            marcará error en lugar de guardar audio incorrecto.
+          </Text>
+        </View>
       </View>
 
+      {/* ── Descargas activas ── */}
       <View style={styles.downloadsHeaderRow}>
-        <Text style={styles.sectionTitle}>Descargas URL</Text>
-        {sortedExternalDownloads.some(item => item.status === 'completed') ? (
+        <Text style={styles.sectionTitle}>
+          Descargas{sortedExternalDownloads.length > 0 ? ` (${sortedExternalDownloads.length})` : ''}
+        </Text>
+        {sortedExternalDownloads.some(i => i.status === 'completed') ? (
           <Pressable onPress={clearCompletedExternalDownloads}>
-            <Text style={styles.sectionAction}>Limpiar completadas</Text>
+            <Text style={styles.sectionAction}>Limpiar</Text>
           </Pressable>
         ) : null}
       </View>
 
       {sortedExternalDownloads.length === 0 ? (
         <EmptyBlock
-          title="Aun no hay descargas por URL"
-          subtitle="Agrega una URL arriba para empezar."
+          title="Sin descargas"
+          subtitle="Agrega una URL de YouTube arriba."
           icon="cloud-download-outline"
         />
       ) : (
         sortedExternalDownloads.map(item => (
-          <Pressable
+          <DownloadItemCard
             key={item.id}
-            style={styles.downloadItemCard}
-            onPress={() => handlePlayExternal(item, item.format)}
-          >
-            <View style={styles.downloadItemTopRow}>
-              <Text style={styles.downloadItemTitle} numberOfLines={1}>
-                {item.title}
-              </Text>
-              <Text style={styles.downloadItemFormat}>{item.format.toUpperCase()}</Text>
-            </View>
-            <Text style={styles.downloadItemMeta} numberOfLines={1}>
-              {statusText(item.status)} · {item.progress}%
-              {item.sizeLabel ? ` · ${item.sizeLabel}` : ''}
-            </Text>
-            {currentSongId === `ext-${item.id}` ? (
-              <Text style={styles.nowPlayingInline}>Reproduciendo</Text>
-            ) : null}
-
-            <View style={styles.downloadProgressTrack}>
-              <View
-                style={[
-                  styles.downloadProgressFill,
-                  { width: `${Math.max(2, item.progress)}%` },
-                ]}
-              />
-            </View>
-
-            <View style={styles.downloadItemActions}>
-              {(item.status === 'failed' || item.status === 'completed') && (
-                <Pressable
-                  onPress={() => startSimulatedDownload(item.id)}
-                  style={styles.secondaryButton}
-                >
-                  <Text style={styles.secondaryButtonText}>Reintentar</Text>
-                </Pressable>
-              )}
-              <Pressable
-                onPress={() => removeItem(item.id)}
-                style={styles.secondaryButton}
-              >
-                <Text style={styles.secondaryButtonText}>Eliminar</Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        ))
-      )}
-
-      <View style={styles.downloadsHeaderRow}>
-        <Text style={styles.sectionTitle}>Historial reciente</Text>
-        <Pressable onPress={() => setIsHistoryModalOpen(true)}>
-          <Text style={styles.sectionAction}>Ver historial completo</Text>
-        </Pressable>
-      </View>
-
-      {recentHistory.length === 0 ? (
-        <EmptyBlock
-          title="Sin historial aun"
-          subtitle="Cuando finalice una descarga aparecera aqui."
-          icon="time-outline"
-        />
-      ) : (
-        recentHistory.map(item => (
-          <Pressable
-            key={item.id}
-            style={styles.historyCard}
-            onPress={() => handlePlayExternal(item, item.format)}
-          >
-            {item.thumbnailUrl ? (
-              <Image source={{ uri: item.thumbnailUrl }} style={styles.historyThumb} />
-            ) : (
-              <View style={styles.historyThumbFallback} />
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={styles.downloadItemTitle} numberOfLines={1}>
-                {item.title}
-              </Text>
-              <Text style={styles.downloadItemMeta} numberOfLines={1}>
-                {item.fileName || '-'}
-              </Text>
-              <Text style={styles.downloadItemMeta}>
-                {item.format.toUpperCase()} · {item.sizeLabel || '-'} ·{' '}
-                {dateLabel(item.completedAt)}
-              </Text>
-              {currentSongId === `ext-${item.id}` ? (
-                <Text style={styles.nowPlayingInline}>Reproduciendo</Text>
-              ) : null}
-            </View>
-          </Pressable>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>Descargas de biblioteca</Text>
-      {list.length === 0 ? (
-        <EmptyBlock
-          title="No hay descargas locales"
-          subtitle="Usa detalles de una cancion para guardarla offline."
-          icon="cloud-download-outline"
-        />
-      ) : (
-        list.map(song => (
-          <SongCard
-            key={song.id}
-            song={song}
-            artist={artists.find(a => a.id === song.artistId)?.name || 'Unknown'}
-            onPress={() => toggle(song.id)}
+            item={item}
+            isPlaying={playingItemId === item.id}
+            onPlay={() => handlePlayItem(item)}
+            onRetry={() => performDownload(item.id)}
+            onRemove={() => removeItem(item.id)}
           />
         ))
       )}
 
+      {/* ── Historial reciente ── */}
+      <View style={styles.downloadsHeaderRow}>
+        <Text style={styles.sectionTitle}>Historial reciente</Text>
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          {sortedHistory.length > 0 && (
+            <Pressable onPress={clearDownloadHistory}>
+              <Text style={[styles.sectionAction, { color: theme.colors.danger }]}>
+                Borrar todo
+              </Text>
+            </Pressable>
+          )}
+          <Pressable onPress={() => setIsHistoryModalOpen(true)}>
+            <Text style={styles.sectionAction}>Ver todo</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {recentHistory.length === 0 ? (
+        <EmptyBlock
+          title="Sin historial"
+          subtitle="Cuando finalice una descarga aparecerá aquí."
+          icon="time-outline"
+        />
+      ) : (
+        recentHistory.map(item => (
+          <HistoryCard
+            key={item.id}
+            item={item}
+            isPlaying={playingItemId === item.id}
+            onPlay={() => handlePlayItem(item)}
+            onRemove={() => removeFromDownloadHistory(item.id)}
+          />
+        ))
+      )}
+
+
+      {/* ── Archivos en AudivoxMusic ── */}
       {(audioFiles.length > 0 || imageFiles.length > 0) && (
         <View style={styles.localFilesCard}>
-          <Text style={styles.sectionTitle}>Archivos encontrados</Text>
-          {audioFiles.slice(0, 5).map(file => (
+          <Text style={styles.sectionTitle}>Archivos en AudivoxMusic</Text>
+          {audioFiles.slice(0, 8).map(file => (
             <Text key={file.path} style={styles.localFileRow} numberOfLines={1}>
-              Audio: {file.name}
+              {file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB
             </Text>
           ))}
-          {imageFiles.slice(0, 5).map(file => (
+          {imageFiles.slice(0, 4).map(file => (
             <Text key={file.path} style={styles.localFileRow} numberOfLines={1}>
-              Imagen: {file.name}
+              {file.name}
             </Text>
           ))}
         </View>
       )}
 
+      {/* ── Modal historial ── */}
       <Modal
         visible={isHistoryModalOpen}
         animationType="slide"
@@ -545,49 +648,41 @@ export const DownloadsScreen = () => {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalTopBar}>
-              <Text style={styles.modalTitle}>Historial completo</Text>
-              <Pressable onPress={() => setIsHistoryModalOpen(false)}>
-                <Text style={styles.sectionAction}>Cerrar</Text>
-              </Pressable>
+              <Text style={styles.modalTitle}>Historial ({sortedHistory.length})</Text>
+              <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+                {sortedHistory.length > 0 && (
+                  <Pressable
+                    onPress={() => {
+                      clearDownloadHistory();
+                      setIsHistoryModalOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.sectionAction, { color: theme.colors.danger }]}>
+                      Borrar todo
+                    </Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={() => setIsHistoryModalOpen(false)}>
+                  <Text style={styles.sectionAction}>Cerrar</Text>
+                </Pressable>
+              </View>
             </View>
-            <ScrollView contentContainerStyle={{ gap: 10, paddingBottom: 16 }}>
+            <ScrollView contentContainerStyle={{ gap: 10, paddingBottom: 24 }}>
               {sortedHistory.length === 0 ? (
                 <EmptyBlock
                   title="Sin descargas"
-                  subtitle="No hay elementos en el historial."
+                  subtitle="El historial está vacío."
                   icon="albums-outline"
                 />
               ) : (
                 sortedHistory.map(item => (
-                  <Pressable
-                    key={`${item.id}-history`}
-                    style={styles.historyCard}
-                    onPress={() => handlePlayExternal(item, item.format)}
-                  >
-                    {item.thumbnailUrl ? (
-                      <Image
-                        source={{ uri: item.thumbnailUrl }}
-                        style={styles.historyThumb}
-                      />
-                    ) : (
-                      <View style={styles.historyThumbFallback} />
-                    )}
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.downloadItemTitle} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      <Text style={styles.downloadItemMeta} numberOfLines={1}>
-                        {item.fileName || '-'}
-                      </Text>
-                      <Text style={styles.downloadItemMeta}>
-                        {item.format.toUpperCase()} · {item.sizeLabel || '-'} ·{' '}
-                        {dateLabel(item.completedAt)}
-                      </Text>
-                      {currentSongId === `ext-${item.id}` ? (
-                        <Text style={styles.nowPlayingInline}>Reproduciendo</Text>
-                      ) : null}
-                    </View>
-                  </Pressable>
+                  <HistoryCard
+                    key={`hist-${item.id}`}
+                    item={item}
+                    isPlaying={playingItemId === item.id}
+                    onPlay={() => handlePlayItem(item)}
+                    onRemove={() => removeFromDownloadHistory(item.id)}
+                  />
                 ))
               )}
             </ScrollView>

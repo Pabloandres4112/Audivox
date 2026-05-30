@@ -7,7 +7,7 @@ import { styles } from './styles';
 
 export const playAndOpen = async (
   songId: string,
-  playSong: (song: (typeof songs)[number]) => Promise<void>,
+  playSong: (song: (typeof songs)[number]) => Promise<boolean | void>,
   markRecent: (id: string) => void,
   navigation?: {
     getParent?: () =>
@@ -20,8 +20,8 @@ export const playAndOpen = async (
   const song = songs.find(item => item.id === songId);
   if (!song) return;
   markRecent(song.id);
-  await playSong(song);
-  navigation?.getParent?.()?.navigate('Player');
+  const ok = await playSong(song);
+  if (ok !== false) navigation?.getParent?.()?.navigate('Player');
 };
 
 export const SectionHeader = ({

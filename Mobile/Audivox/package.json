@@ -24,6 +24,7 @@
     "react-native-reanimated": "^4.4.0",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^4.25.2",
+    "react-native-sound-player": "^0.14.5",
     "react-native-vector-icons": "^10.3.0",
     "react-native-worklets": "^0.9.1",
     "zustand": "^5.0.14"

@@ -50,6 +50,8 @@ interface AppState {
     patch: Partial<ExternalDownload>,
   ) => void;
   addToDownloadHistory: (download: ExternalDownload) => void;
+  removeFromDownloadHistory: (id: string) => void;
+  clearDownloadHistory: () => void;
   removeExternalDownload: (id: string) => void;
   clearCompletedExternalDownloads: () => void;
 }
@@ -103,6 +105,11 @@ export const useAppStore = create<AppState>()(
             ...s.downloadHistory.filter(item => item.id !== download.id),
           ],
         })),
+      removeFromDownloadHistory: id =>
+        set(s => ({
+          downloadHistory: s.downloadHistory.filter(item => item.id !== id),
+        })),
+      clearDownloadHistory: () => set({ downloadHistory: [] }),
       removeExternalDownload: id =>
         set(s => ({
           externalDownloads: s.externalDownloads.filter(item => item.id !== id),

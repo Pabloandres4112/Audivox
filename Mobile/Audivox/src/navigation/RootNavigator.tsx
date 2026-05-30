@@ -60,30 +60,30 @@ const AppTabs = () => {
         position: 'absolute',
         left: 14,
         right: 14,
-        bottom: insets.bottom + 10,
-        height: 74 + Math.max(0, insets.bottom - 4),
+        bottom: insets.bottom + 8,
+        height: 56 + Math.max(0, insets.bottom - 4),
         backgroundColor: theme.colors.surfaceRaised,
         borderTopColor: theme.colors.borderSoft,
         borderWidth: 1,
         borderColor: theme.colors.borderSoft,
-        borderRadius: 26,
-        paddingTop: 6,
-        paddingBottom: Math.max(8, insets.bottom),
+        borderRadius: 22,
+        paddingTop: 4,
+        paddingBottom: Math.max(6, insets.bottom),
         shadowColor: '#000',
-        shadowOpacity: 0.3,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 10 },
-        elevation: 14,
+        shadowOpacity: 0.28,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 12,
       },
-      tabBarItemStyle: { paddingVertical: 4, borderRadius: 18 },
-      tabBarLabelStyle: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
+      tabBarItemStyle: { paddingVertical: 2, borderRadius: 14 },
+      tabBarLabelStyle: { fontSize: 10, fontWeight: '700', marginBottom: 1 },
       tabBarActiveTintColor: theme.colors.primary,
       tabBarInactiveTintColor: theme.colors.textMuted,
       tabBarActiveBackgroundColor: theme.colors.surface,
       tabBarIcon: ({ color, size }) => (
         <Icon
           color={color}
-          size={size + 1}
+          size={size - 2}
           name={
             {
               HomeTab: 'home-outline',
