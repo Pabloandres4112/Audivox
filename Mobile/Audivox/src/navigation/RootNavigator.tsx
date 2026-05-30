@@ -1,0 +1,15 @@
+import React from 'react';
+import {DarkTheme, NavigationContainer} from '@react-navigation/native';
+import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
+import {createNativeStackNavigator} from '@react-navigation/native-stack';
+import Icon from 'react-native-vector-icons/Ionicons';
+import {MiniPlayer} from '../components/music/MiniPlayer';
+import {useAppStore} from '../store/useAppStore';
+import {theme} from '../theme';
+import {AlbumScreen, ArtistScreen, DownloadsScreen, HomeScreen, LibraryScreen, LoginScreen, OnboardingScreen, PlayerScreen, PlaylistScreen, SearchScreen, SongDetailsScreen, WelcomeScreen} from '../screens';
+import {AuthStackParamList, MainTabParamList, RootStackParamList} from './types';
+const Root=createNativeStackNavigator<RootStackParamList>(); const Auth=createNativeStackNavigator<AuthStackParamList>(); const Tab=createBottomTabNavigator<MainTabParamList>();
+const navTheme={...DarkTheme,colors:{...DarkTheme.colors,background:theme.colors.background,card:theme.colors.surface,text:theme.colors.text,border:theme.colors.border,primary:theme.colors.primary}};
+const AppTabs=()=> <Tab.Navigator screenOptions={({route})=>({headerShown:false,tabBarStyle:{backgroundColor:'#121828',borderTopColor:theme.colors.border,height:64,paddingTop:4},tabBarActiveTintColor:theme.colors.text,tabBarInactiveTintColor:theme.colors.textMuted,tabBarIcon:({color,size})=><Icon color={color} size={size} name={{HomeTab:'home',SearchTab:'search',LibraryTab:'library',DownloadsTab:'download'}[route.name] as string}/>})}><Tab.Screen name='HomeTab' component={HomeScreen} options={{title:'Home'}}/><Tab.Screen name='SearchTab' component={SearchScreen} options={{title:'Search'}}/><Tab.Screen name='LibraryTab' component={LibraryScreen} options={{title:'Library'}}/><Tab.Screen name='DownloadsTab' component={DownloadsScreen} options={{title:'Downloads'}}/></Tab.Navigator>;
+const AuthFlow=()=> <Auth.Navigator screenOptions={{headerShown:false}}><Auth.Screen name='Welcome' component={WelcomeScreen}/><Auth.Screen name='Onboarding' component={OnboardingScreen}/><Auth.Screen name='Login' component={LoginScreen}/></Auth.Navigator>;
+export const RootNavigator=()=>{const profile=useAppStore(s=>s.profile); return <NavigationContainer theme={navTheme}><Root.Navigator><Root.Screen name={profile?'Main':'Auth'} component={profile?AppTabs:AuthFlow} options={{headerShown:false}}/><Root.Screen name='Artist' component={ArtistScreen}/><Root.Screen name='Album' component={AlbumScreen}/><Root.Screen name='Playlist' component={PlaylistScreen}/><Root.Screen name='SongDetails' component={SongDetailsScreen}/><Root.Screen name='Player' component={PlayerScreen} options={{headerShown:false,presentation:'modal'}}/></Root.Navigator>{profile&&<MiniPlayer onOpen={()=>{}}/>}</NavigationContainer>;};
