@@ -48,17 +48,18 @@ const AppTabs = () => (
   <Tab.Navigator
     screenOptions={({ route }) => ({
       headerShown: false,
+      tabBarShowLabel: true,
       tabBarStyle: {
         position: 'absolute',
         left: 14,
         right: 14,
         bottom: 14,
-        height: 70,
+        height: 74,
         backgroundColor: theme.colors.surfaceRaised,
         borderTopColor: theme.colors.borderSoft,
         borderWidth: 1,
         borderColor: theme.colors.borderSoft,
-        borderRadius: 24,
+        borderRadius: 26,
         paddingTop: 6,
         paddingBottom: 8,
         shadowColor: '#000',
@@ -67,20 +68,21 @@ const AppTabs = () => (
         shadowOffset: { width: 0, height: 10 },
         elevation: 14,
       },
-      tabBarItemStyle: { paddingVertical: 4 },
-      tabBarLabelStyle: { fontSize: 10, fontWeight: '700' },
-      tabBarActiveTintColor: theme.colors.text,
+      tabBarItemStyle: { paddingVertical: 4, borderRadius: 18 },
+      tabBarLabelStyle: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
+      tabBarActiveTintColor: theme.colors.primary,
       tabBarInactiveTintColor: theme.colors.textMuted,
+      tabBarActiveBackgroundColor: theme.colors.surface,
       tabBarIcon: ({ color, size }) => (
         <Icon
           color={color}
-          size={size}
+          size={size + 1}
           name={
             {
-              HomeTab: 'home',
-              SearchTab: 'search',
-              LibraryTab: 'library',
-              DownloadsTab: 'download',
+              HomeTab: 'home-outline',
+              SearchTab: 'search-outline',
+              LibraryTab: 'library-outline',
+              DownloadsTab: 'cloud-download-outline',
             }[route.name] as string
           }
         />

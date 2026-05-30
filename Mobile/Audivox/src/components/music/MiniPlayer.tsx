@@ -51,7 +51,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 14,
     right: 14,
-    bottom: 14,
+    bottom: 92,
     backgroundColor: theme.colors.surfaceRaised,
     borderRadius: theme.radius.xl,
     padding: 12,
