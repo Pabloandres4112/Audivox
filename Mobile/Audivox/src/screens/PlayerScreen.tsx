@@ -2,7 +2,6 @@ import React from 'react';
 import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { EmptyBlock } from '../components/common/StateBlocks';
-import { artists } from '../services/mockData';
 import { useAppStore } from '../store/useAppStore';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { theme } from '../theme';
@@ -10,126 +9,182 @@ import { formatTime } from '../utils/time';
 import { styles } from './styles';
 
 export const PlayerScreen = () => {
-  const player = usePlayerStore();
-  const liked = useAppStore(s => s.likedIds.includes(player.current?.id || ''));
+  const current = usePlayerStore(s => s.current);
+  const isPlaying = usePlayerStore(s => s.isPlaying);
+  const progress = usePlayerStore(s => s.progress);
+  const duration = usePlayerStore(s => s.duration); // duración real de SoundPlayer
+  const shuffle = usePlayerStore(s => s.shuffle);
+  const repeat = usePlayerStore(s => s.repeat);
+  const queue = usePlayerStore(s => s.queue);
+  const togglePlay = usePlayerStore(s => s.togglePlay);
+  const next = usePlayerStore(s => s.next);
+  const previous = usePlayerStore(s => s.previous);
+  const seek = usePlayerStore(s => s.seek);
+  const toggleShuffle = usePlayerStore(s => s.toggleShuffle);
+  const toggleRepeat = usePlayerStore(s => s.toggleRepeat);
+
+  const liked = useAppStore(s => s.likedIds.includes(current?.id ?? ''));
   const toggleLike = useAppStore(s => s.toggleLike);
 
-  if (!player.current) {
+  if (!current) {
     return (
       <View style={styles.fullScreenCenter}>
         <EmptyBlock
-          title="No track selected"
-          subtitle="Pick a song from Home, Search or Library."
+          title="Sin reproducción"
+          subtitle="Selecciona una canción desde Home o Descargas."
           icon="play-circle-outline"
         />
       </View>
     );
   }
 
-  const artistName =
-    artists.find(artist => artist.id === player.current?.artistId)?.name ||
-    'Unknown';
-  const ratio = Math.min(1, player.progress / player.current.duration);
-  const queuePreview = player.queue
-    .filter(song => song.id !== player.current?.id)
-    .slice(0, 3);
+  const ratio = duration > 0 ? Math.min(1, progress / duration) : 0;
+
+  // Nombre del artista: si es local/a1, no mostrar ID, sino etiqueta limpia
+  const artistDisplay =
+    current.artistId === 'local' ? 'Música local'
+    : current.artistId === 'a1' ? 'Descarga'
+    : current.artistId;
+
+  // Cola sin el track actual
+  const queuePreview = queue.filter(s => s.id !== current.id).slice(0, 4);
 
   return (
     <ScrollView contentContainerStyle={styles.playerPage}>
+
+      {/* ── Artwork ── */}
       <View style={styles.playerArtWrap}>
-        <Image source={{ uri: player.current.artwork }} style={styles.playerArt} />
+        {current.artwork ? (
+          <Image source={{ uri: current.artwork }} style={styles.playerArt} />
+        ) : (
+          <View style={[styles.playerArt, styles.playerArtFallback]}>
+            <Icon name="musical-notes" size={90} color={theme.colors.primary} />
+          </View>
+        )}
         <View style={styles.playerGlow} />
       </View>
-      <Text style={styles.playerTitle}>{player.current.title}</Text>
-      <Text style={styles.playerArtist}>{artistName}</Text>
 
+      {/* ── Info ── */}
+      <View style={{ gap: 4 }}>
+        <Text style={styles.playerTitle} numberOfLines={2}>
+          {current.title}
+        </Text>
+        <Text style={styles.playerArtist}>{artistDisplay}</Text>
+      </View>
+
+      {/* ── Progress bar ── */}
       <View style={styles.progressHeader}>
-        <Text style={styles.progressTime}>{formatTime(player.progress)}</Text>
-        <Text style={styles.progressTime}>{formatTime(player.current.duration)}</Text>
+        <Text style={styles.progressTime}>{formatTime(progress)}</Text>
+        <Text style={styles.progressTime}>
+          {duration > 0 ? formatTime(duration) : '--:--'}
+        </Text>
       </View>
-      <View style={styles.playerProgressTrack}>
+      <Pressable
+        style={styles.playerProgressTrack}
+        onPress={e => {
+          if (duration > 0) {
+            const { locationX } = e.nativeEvent;
+            // Seek proporcional al ancho del componente
+            // Nota: necesita width real — usamos approximación
+            seek((locationX / 300) * duration);
+          }
+        }}
+      >
         <View style={[styles.playerProgressFill, { width: `${ratio * 100}%` }]} />
-      </View>
+      </Pressable>
 
+      {/* ── Controles principales ── */}
       <View style={styles.actionRowCentered}>
         <Pressable
-          onPress={player.toggleShuffle}
-          style={[styles.circleBtn, player.shuffle && styles.circleBtnActive]}
+          onPress={toggleShuffle}
+          style={[styles.circleBtn, shuffle && styles.circleBtnActive]}
         >
           <Icon
             name="shuffle"
-            size={18}
-            color={player.shuffle ? theme.colors.background : theme.colors.text}
+            size={20}
+            color={shuffle ? theme.colors.background : theme.colors.text}
           />
         </Pressable>
-        <Pressable onPress={() => player.previous()} style={styles.circleBtn}>
-          <Icon name="play-skip-back" size={18} color={theme.colors.text} />
+
+        <Pressable onPress={() => previous()} style={styles.circleBtn}>
+          <Icon name="play-skip-back" size={20} color={theme.colors.text} />
         </Pressable>
-        <Pressable style={styles.mainPlayBtn} onPress={() => player.togglePlay()}>
+
+        <Pressable style={styles.mainPlayBtn} onPress={() => togglePlay()}>
           <Icon
-            name={player.isPlaying ? 'pause' : 'play'}
-            size={22}
+            name={isPlaying ? 'pause' : 'play'}
+            size={26}
             color={theme.colors.background}
           />
         </Pressable>
-        <Pressable onPress={() => player.next()} style={styles.circleBtn}>
-          <Icon name="play-skip-forward" size={18} color={theme.colors.text} />
+
+        <Pressable onPress={() => next()} style={styles.circleBtn}>
+          <Icon name="play-skip-forward" size={20} color={theme.colors.text} />
         </Pressable>
+
         <Pressable
-          onPress={player.toggleRepeat}
-          style={[styles.circleBtn, player.repeat !== 'off' && styles.circleBtnActive]}
+          onPress={toggleRepeat}
+          style={[styles.circleBtn, repeat !== 'off' && styles.circleBtnActive]}
         >
           <Icon
-            name="repeat"
-            size={18}
-            color={player.repeat !== 'off' ? theme.colors.background : theme.colors.text}
+            name={repeat === 'one' ? 'repeat-outline' : 'repeat'}
+            size={20}
+            color={repeat !== 'off' ? theme.colors.background : theme.colors.text}
           />
         </Pressable>
       </View>
 
+      {/* ── Acciones secundarias ── */}
       <View style={styles.actionRow}>
         <Pressable
           style={styles.secondaryButton}
-          onPress={() => player.seek(Math.max(0, player.progress - 10))}
+          onPress={() => seek(Math.max(0, progress - 10))}
         >
-          <Text style={styles.secondaryButtonText}>-10s</Text>
+          <Text style={styles.secondaryButtonText}>−10s</Text>
         </Pressable>
         <Pressable
           style={styles.secondaryButton}
-          onPress={() =>
-            player.seek(Math.min(player.current.duration, player.progress + 10))
-          }
+          onPress={() => seek(Math.min(duration, progress + 10))}
         >
           <Text style={styles.secondaryButtonText}>+10s</Text>
         </Pressable>
         <Pressable
-          style={styles.secondaryButton}
-          onPress={() => toggleLike(player.current!.id)}
+          style={[styles.secondaryButton, liked && { backgroundColor: theme.colors.primary }]}
+          onPress={() => toggleLike(current.id)}
         >
-          <Text style={styles.secondaryButtonText}>{liked ? 'Liked' : 'Like'}</Text>
+          <Icon
+            name={liked ? 'heart' : 'heart-outline'}
+            size={16}
+            color={liked ? theme.colors.background : theme.colors.text}
+          />
         </Pressable>
       </View>
 
-      <View style={styles.queueCard}>
-        <Text style={styles.queueTitle}>Up next</Text>
-        {queuePreview.length === 0 ? (
-          <Text style={styles.queueSub}>Queue is empty.</Text>
-        ) : (
-          queuePreview.map(item => (
+      {/* ── Cola ── */}
+      {queuePreview.length > 0 && (
+        <View style={styles.queueCard}>
+          <Text style={styles.queueTitle}>Siguiente</Text>
+          {queuePreview.map(item => (
             <View key={item.id} style={styles.queueRow}>
-              <Image source={{ uri: item.artwork }} style={styles.queueCover} />
+              {item.artwork ? (
+                <Image source={{ uri: item.artwork }} style={styles.queueCover} />
+              ) : (
+                <View style={[styles.queueCover, styles.queueCoverFallback]}>
+                  <Icon name="musical-note-outline" size={16} color={theme.colors.primary} />
+                </View>
+              )}
               <View style={{ flex: 1 }}>
-                <Text style={styles.queueItemTitle}>{item.title}</Text>
-                <Text style={styles.queueSub}>
-                  {artists.find(artist => artist.id === item.artistId)?.name ||
-                    'Unknown'}
+                <Text style={styles.queueItemTitle} numberOfLines={1}>
+                  {item.title}
+                </Text>
+                <Text style={styles.queueSub} numberOfLines={1}>
+                  {item.artistId === 'local' ? 'Música local' : 'Descarga'}
                 </Text>
               </View>
-              <Text style={styles.queueSub}>{formatTime(item.duration)}</Text>
             </View>
-          ))
-        )}
-      </View>
+          ))}
+        </View>
+      )}
     </ScrollView>
   );
 };

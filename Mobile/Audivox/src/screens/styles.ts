@@ -644,6 +644,16 @@ export const styles = StyleSheet.create({
     borderColor: theme.colors.borderSoft,
   },
   playerArt: { width: '100%', aspectRatio: 1 },
+  playerArtFallback: {
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: theme.colors.surfaceRaised,
+  },
+  queueCoverFallback: {
+    backgroundColor: theme.colors.surfaceRaised,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
   playerGlow: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(83, 214, 196, 0.08)',

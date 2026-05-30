@@ -7,6 +7,7 @@ interface PlayerState {
   queue: Song[];
   isPlaying: boolean;
   progress: number;
+  duration: number;      // duración real de SoundPlayer (no current.duration)
   shuffle: boolean;
   repeat: 'off' | 'all' | 'one';
   playSong: (song: Song) => Promise<boolean>;
@@ -15,6 +16,7 @@ interface PlayerState {
   next: () => Promise<void>;
   previous: () => Promise<void>;
   seek: (v: number) => void;
+  setDuration: (d: number) => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
 }
@@ -24,6 +26,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   queue: [],
   isPlaying: false,
   progress: 0,
+  duration: 0,
   shuffle: false,
   repeat: 'off',
 
@@ -34,7 +37,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         current: song,
         isPlaying: true,
         progress: 0,
-        // Agregar a queue si no está
+        duration: 0, // se actualiza en usePlaybackTick via SoundPlayer.getInfo()
         queue: s.queue.find(q => q.id === song.id)
           ? s.queue
           : [song, ...s.queue],
@@ -45,9 +48,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   addToQueue: (song: Song) =>
     set(s => ({
-      queue: s.queue.find(q => q.id === song.id)
-        ? s.queue
-        : [...s.queue, song],
+      queue: s.queue.find(q => q.id === song.id) ? s.queue : [...s.queue, song],
     })),
 
   togglePlay: async () => {
@@ -69,16 +70,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const n = shuffle
       ? (() => {
           const rest = queue.map((_, idx) => idx).filter(idx => idx !== i);
-          return rest.length > 0
-            ? rest[Math.floor(Math.random() * rest.length)]
-            : i;
+          return rest.length > 0 ? rest[Math.floor(Math.random() * rest.length)] : i;
         })()
       : i + 1 >= queue.length
       ? repeat === 'all' ? 0 : i
       : i + 1;
     const song = queue[n];
     const ok = await playerService.play(song);
-    if (ok) set({ current: song, isPlaying: true, progress: 0 });
+    if (ok) set({ current: song, isPlaying: true, progress: 0, duration: 0 });
   },
 
   previous: async () => {
@@ -87,10 +86,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const i = queue.findIndex(s => s.id === current.id);
     const song = queue[Math.max(0, i - 1)];
     const ok = await playerService.play(song);
-    if (ok) set({ current: song, isPlaying: true, progress: 0 });
+    if (ok) set({ current: song, isPlaying: true, progress: 0, duration: 0 });
   },
 
-  seek: v => set({ progress: v }),
+  seek: (v: number) => set({ progress: v }),
+  setDuration: (d: number) => set({ duration: d }),
   toggleShuffle: () => set(s => ({ shuffle: !s.shuffle })),
   toggleRepeat: () =>
     set(s => ({
