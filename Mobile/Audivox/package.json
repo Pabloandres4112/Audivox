@@ -23,6 +23,7 @@
     "react-native-safe-area-context": "^5.5.2",
     "react-native-screens": "^4.25.2",
     "react-native-vector-icons": "^10.3.0",
+    "react-native-worklets": "^0.9.1",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
@@ -33,7 +34,9 @@
     "@react-native-community/cli-platform-android": "20.1.0",
     "@react-native-community/cli-platform-ios": "20.1.0",
     "@react-native/babel-preset": "0.85.3",
+    "@react-native/codegen": "0.85.3",
     "@react-native/eslint-config": "0.85.3",
+    "@react-native/gradle-plugin": "0.85.3",
     "@react-native/jest-preset": "0.85.3",
     "@react-native/metro-config": "0.85.3",
     "@react-native/typescript-config": "0.85.3",
