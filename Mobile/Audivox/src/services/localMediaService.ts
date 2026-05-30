@@ -2,7 +2,7 @@ import { PermissionsAndroid, Platform } from 'react-native';
 import RNFS, { ReadDirItem } from 'react-native-fs';
 import { ExternalDownloadFormat } from '../store/useAppStore';
 
-const AUDIO_EXT = ['.mp3', '.m4a', '.wav', '.aac', '.flac', '.ogg', '.opus'];
+const AUDIO_EXT = ['.mp3', '.m4a', '.wav', '.aac', '.flac', '.ogg', '.opus', '.webm'];
 const IMAGE_EXT = ['.jpg', '.jpeg', '.png', '.webp'];
 
 const MIN_AUDIO_BYTES = 64 * 1024;
@@ -66,6 +66,9 @@ const detectAudioFormatFromHeader = (headerChunk: string): string | null => {
 
   const ftypIndex = chunk.indexOf('ftyp');
   if (ftypIndex >= 0 && ftypIndex <= 8) return 'm4a';
+
+  // WebM: cabecera EBML → bytes 0x1A 0x45 0xDF 0xA3
+  if (chunk.charCodeAt(0) === 0x1A && chunk.charCodeAt(1) === 0x45) return 'webm';
 
   return null;
 };
@@ -328,6 +331,173 @@ export const localMediaService = {
       contentLength: beginContentLength || undefined,
       detectedFormat,
     };
+  },
+
+  // Elimina un archivo descargado de la carpeta AudivoxMusic (uso personal).
+  // La eliminación falla silenciosamente si el archivo no existe.
+  unlinkDownloadedFile: async (fileName: string): Promise<void> => {
+    try {
+      const path = `${localMediaService.getAudivoxMusicDir()}/${fileName}`;
+      if (await RNFS.exists(path)) await RNFS.unlink(path);
+      // También intenta eliminar la portada si existe
+      const base = fileName.replace(/\.[^.]+$/, '');
+      const coverPath = `${localMediaService.getAudivoxMusicDir()}/${base}.jpg`;
+      if (await RNFS.exists(coverPath)) await RNFS.unlink(coverPath).catch(() => {});
+    } catch {
+      // Falla silenciosa: el archivo puede no existir o estar en uso
+    }
+  },
+
+  // ─── Descarga vía Invidious/Piped (uso personal, sin backend) ────────────
+  // Estrategia de 2 niveles:
+  //   1. Invidious → resuelve la URL directa de CDN de Google (sin Cloudflare).
+  //   2. Piped (instancias sin Cloudflare) como fallback.
+  // Solo para uso personal en tu propio dispositivo.
+  downloadViaPiped: async (
+    youtubeUrl: string,
+    onProgress?: (pct: number) => void,
+  ): Promise<DownloadRemoteAudioResult & { title: string }> => {
+    // Instancias Invidious — no usan Cloudflare, devuelven URLs directas de Google CDN
+    const INVIDIOUS_INSTANCES = [
+      'https://invidious.fdn.fr',
+      'https://yt.artemislena.eu',
+      'https://invidious.privacydev.net',
+      'https://inv.riverside.rocks',
+      'https://invidious.nerdvpn.de',
+      'https://invidious.slipfox.xyz',
+    ];
+
+    // Instancias Piped sin Cloudflare (evitar kavin.rocks, api.piped.yt)
+    const PIPED_INSTANCES = [
+      'https://pipedapi.eu.projectsegfau.lt',
+      'https://pipedapi.in.projectsegfau.lt',
+      'https://pipedapi.tokhmi.xyz',
+      'https://piped-api.garudalinux.org',
+      'https://pipedapi.adminforge.de',
+    ];
+
+    const extractVideoId = (url: string): string | null =>
+      url.match(/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/)?.[1] ?? null;
+
+    const videoId = extractVideoId(youtubeUrl.trim());
+    if (!videoId) throw new Error('URL de YouTube inválida. No se encontró el video ID.');
+
+    onProgress?.(2);
+
+    const BROWSER_HEADERS = {
+      'Accept': 'application/json',
+      'Accept-Language': 'es-419,es;q=0.9,en;q=0.8',
+      'User-Agent':
+        'Mozilla/5.0 (Linux; Android 13; SM-A536B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+    };
+
+    type InvFormat = {
+      url?: string;
+      type?: string;
+      container?: string;
+      itag?: string;
+      bitrate?: number;
+    };
+    type InvData = { title?: string; adaptiveFormats?: InvFormat[] };
+
+    type PipedStream = { url: string; mimeType: string; bitrate: number };
+    type PipedData = {
+      title?: string;
+      audioStreams?: PipedStream[];
+      error?: string;
+      message?: string;
+    };
+
+    let audioUrl: string | null = null;
+    let audioTitle = `yt_${videoId}`;
+    let lastError = 'Todos los servidores fallaron.';
+
+    const fetchJson = async <T>(url: string, timeoutMs = 10_000): Promise<T | null> => {
+      const ctrl = new AbortController();
+      const id = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { headers: BROWSER_HEADERS, signal: ctrl.signal });
+        if (!res.ok) return null;
+        return (await res.json()) as T;
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(id);
+      }
+    };
+
+    // ── Nivel 1: Invidious (URLs directas de Google CDN — máxima compatibilidad) ──
+    for (const instance of INVIDIOUS_INSTANCES) {
+      const data = await fetchJson<InvData>(
+        `${instance}/api/v1/videos/${videoId}?fields=title,adaptiveFormats`,
+      );
+      if (!data) continue;
+
+      const formats = (data.adaptiveFormats ?? []).filter(
+        f => f.url && (f.type?.startsWith('audio/') || f.container),
+      );
+
+      // Preferir m4a (itag 140/141) — compatible con Android MediaPlayer sin codecs externos
+      const m4a = formats.find(
+        f => f.container === 'm4a' || f.type?.includes('audio/mp4'),
+      );
+      const chosen = m4a ?? formats[0];
+
+      if (chosen?.url) {
+        audioUrl = chosen.url;
+        if (data.title) audioTitle = data.title;
+        lastError = '';
+        break;
+      }
+      lastError = `Invidious ${instance}: sin formatos de audio`;
+    }
+
+    // ── Nivel 2: Piped (sin Cloudflare) ──────────────────────────────────────
+    if (!audioUrl) {
+      for (const instance of PIPED_INSTANCES) {
+        const data = await fetchJson<PipedData>(`${instance}/streams/${videoId}`);
+        if (!data) continue;
+        if (data.error || data.message) {
+          lastError = data.error ?? data.message ?? 'Piped error';
+          continue;
+        }
+
+        const streams = (data.audioStreams ?? []).filter(s => s.mimeType?.startsWith('audio/'));
+        if (!streams.length) { lastError = `Piped ${instance}: sin streams`; continue; }
+
+        const m4aStreams = streams.filter(
+          s => s.mimeType.includes('mp4') || s.mimeType.includes('m4a'),
+        );
+        const best =
+          m4aStreams.length > 0
+            ? m4aStreams.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0]
+            : streams.sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+
+        audioUrl = best.url;
+        if (data.title) audioTitle = data.title;
+        lastError = '';
+        break;
+      }
+    }
+
+    if (!audioUrl) {
+      throw new Error(
+        `No se pudo obtener el audio. ${lastError}\n` +
+          'Verifica tu conexión o intenta más tarde.',
+      );
+    }
+
+    onProgress?.(10);
+
+    const result = await localMediaService.downloadRemoteAudio(
+      audioUrl,
+      audioTitle,
+      'm4a',
+      undefined,
+      p => onProgress?.(10 + Math.floor(p * 0.88)),
+    );
+
+    return { ...result, title: audioTitle };
   },
 
   // Cliente preparado para arquitectura correcta de YouTube:

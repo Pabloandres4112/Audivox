@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -240,6 +241,10 @@ export const DownloadsScreen = () => {
   const [audioFiles, setAudioFiles] = useState<LocalMediaItem[]>([]);
   const [localStatus, setLocalStatus] = useState('Permisos pendientes');
 
+  // ── YouTube via Piped ──────────────────────────────────────────────────────
+  const [ytUrl, setYtUrl] = useState('');
+  const [ytLoading, setYtLoading] = useState(false);
+
   const activeDownloads = useRef<Set<string>>(new Set());
 
   const sortedExternalDownloads = useMemo(
@@ -374,7 +379,62 @@ export const DownloadsScreen = () => {
 
   const removeItem = (id: string) => {
     activeDownloads.current.delete(id);
+    // Eliminar el archivo físico del disco si la descarga estaba completada
+    const item = useAppStore.getState().externalDownloads.find(d => d.id === id);
+    if (item?.fileName) {
+      localMediaService.unlinkDownloadedFile(item.fileName).catch(() => {});
+    }
     removeExternalDownload(id);
+  };
+
+  const removeHistoryItem = (id: string) => {
+    const item = useAppStore.getState().downloadHistory.find(d => d.id === id);
+    if (item?.fileName) {
+      localMediaService.unlinkDownloadedFile(item.fileName).catch(() => {});
+    }
+    removeFromDownloadHistory(id);
+  };
+
+  const downloadFromYoutube = async () => {
+    const clean = ytUrl.trim();
+    if (!clean) { setErrorText('Pega una URL de YouTube válida.'); return; }
+    setYtLoading(true);
+    setErrorText(null);
+    const id = `ext-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
+    const placeholder: ExternalDownload = {
+      id, url: clean, title: 'Descargando…', format: 'mp3',
+      status: 'queued', progress: 0, createdAt: Date.now(),
+    };
+    useAppStore.getState().enqueueExternalDownload(placeholder);
+    activeDownloads.current.add(id);
+    updateExternalDownload(id, { status: 'downloading', progress: 1 });
+    try {
+      const result = await localMediaService.downloadViaPiped(clean, pct =>
+        updateExternalDownload(id, { progress: pct }),
+      );
+      const completedAt = Date.now();
+      const completedItem: ExternalDownload = {
+        ...placeholder,
+        title: result.title,
+        status: 'completed', progress: 100, completedAt,
+        fileName: result.fileName, sizeLabel: result.sizeLabel,
+      };
+      updateExternalDownload(id, {
+        title: result.title, status: 'completed', progress: 100,
+        completedAt, fileName: result.fileName, sizeLabel: result.sizeLabel,
+      });
+      addToDownloadHistory(completedItem);
+      setSuccessText(`Descarga lista: ${result.fileName}`);
+      setYtUrl('');
+      scanLocalFolder().catch(() => {});
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      updateExternalDownload(id, { status: 'failed', progress: 0, error: msg });
+      setErrorText(msg);
+    } finally {
+      activeDownloads.current.delete(id);
+      setYtLoading(false);
+    }
   };
 
   const handlePlayItem = async (item: {
@@ -427,7 +487,7 @@ export const DownloadsScreen = () => {
         <Text style={styles.pageSub}>Gestiona tus descargas y archivos locales offline.</Text>
       </View>
 
-      {/* ── CTA: ir a buscar música ── */}
+      {/* ── CTA: ir a buscar música en Audius ── */}
       <Pressable
         style={styles.searchCta}
         onPress={() => navigation.navigate('SearchTab')}
@@ -436,13 +496,54 @@ export const DownloadsScreen = () => {
           <Icon name="search-outline" size={18} color={theme.colors.primary} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.searchCtaTitle}>Buscar música para descargar</Text>
+          <Text style={styles.searchCtaTitle}>Buscar en Audius</Text>
           <Text style={styles.searchCtaSub}>
             Encuentra canciones en Search → toca "Guardar"
           </Text>
         </View>
         <Icon name="chevron-forward-outline" size={18} color={theme.colors.textMuted} />
       </Pressable>
+
+      {/* ── Descarga por URL de YouTube (Piped, uso personal) ── */}
+      <View style={styles.downloaderCard}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Icon name="logo-youtube" size={16} color="#FF4444" />
+          <Text style={styles.sectionTitle}>Descargar desde YouTube</Text>
+        </View>
+        <Text style={styles.inputLabel}>
+          Pega la URL de un video (youtu.be o youtube.com/watch)
+        </Text>
+        <TextInput
+          value={ytUrl}
+          onChangeText={setYtUrl}
+          style={styles.searchInput}
+          placeholder="https://youtu.be/..."
+          placeholderTextColor={theme.colors.textMuted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          returnKeyType="done"
+          onSubmitEditing={downloadFromYoutube}
+        />
+        <Pressable
+          onPress={downloadFromYoutube}
+          style={[styles.primaryButton, ytLoading && { opacity: 0.6 }]}
+          disabled={ytLoading}
+        >
+          {ytLoading ? (
+            <ActivityIndicator color={theme.colors.background} />
+          ) : (
+            <Text style={styles.primaryButtonText}>Descargar audio</Text>
+          )}
+        </Pressable>
+        <View style={styles.demoBanner}>
+          <Icon name="information-circle-outline" size={13} color={theme.colors.accent} />
+          <Text style={styles.demoBannerText}>
+            Usa servidores Piped (open source). Solo para uso personal. Puede fallar si
+            los servidores están caídos — en ese caso usa Audius.
+          </Text>
+        </View>
+      </View>
 
       {successText ? (
         <View style={styles.successBanner}>
@@ -553,7 +654,7 @@ export const DownloadsScreen = () => {
             item={item}
             isPlaying={playingItemId === item.id}
             onPlay={() => handlePlayItem(item)}
-            onRemove={() => removeFromDownloadHistory(item.id)}
+            onRemove={() => removeHistoryItem(item.id)}
           />
         ))
       )}
@@ -617,7 +718,7 @@ export const DownloadsScreen = () => {
                     item={item}
                     isPlaying={playingItemId === item.id}
                     onPlay={() => handlePlayItem(item)}
-                    onRemove={() => removeFromDownloadHistory(item.id)}
+                    onRemove={() => removeHistoryItem(item.id)}
                   />
                 ))
               )}

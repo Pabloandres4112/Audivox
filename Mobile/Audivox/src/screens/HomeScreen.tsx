@@ -322,9 +322,10 @@ export const HomeScreen = ({
           </Pressable>
         </View>
 
-        {/* ── Mode Switch (compacto) ── */}
+        {/* ── Mode Switch ── */}
         <View style={styles.modeSwitchCard}>
           <View style={styles.modeSwitchHeaderRow}>
+            <Text style={styles.modeSwitchTitle}>Modo de reproducción</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
               <View
                 style={{
@@ -336,11 +337,12 @@ export const HomeScreen = ({
                     : theme.colors.danger,
                 }}
               />
-              <Text style={styles.modeSwitchTitle}>
-                {isConnected ? 'Online' : 'Sin internet · Offline auto'}
+              <Text style={isConnected ? styles.onlinePill : styles.offlineAutoPill}>
+                {isConnected ? 'Conectado' : 'Sin internet'}
               </Text>
             </View>
-            <View style={styles.modeSwitchRow}>
+          </View>
+          <View style={styles.modeSwitchRow}>
               <Pressable
                 onPress={() => setModePreference('online')}
                 style={[styles.modeChip, effectiveMode === 'online' && styles.modeChipActive]}
@@ -385,7 +387,6 @@ export const HomeScreen = ({
                   Offline
                 </Text>
               </Pressable>
-            </View>
           </View>
         </View>
 
