@@ -21,6 +21,7 @@ import {
 import { usePlayerStore } from '../store/usePlayerStore';
 import { theme } from '../theme';
 import { MainTabParamList } from '../navigation/types';
+import { normalizeSearchQuery } from '../security/inputValidation';
 import { styles } from './styles';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -164,7 +165,6 @@ export const SearchScreen = ({
   const [results, setResults] = useState<DeezerTrack[]>([]);
   const [resolvingId, setResolvingId] = useState<number | null>(null);
 
-  const enqueueExternalDownload = useAppStore(s => s.enqueueExternalDownload);
   const addRecentTrack = useAppStore(s => s.addRecentTrack);
   const playSong = usePlayerStore(s => s.playSong);
   const currentSong = usePlayerStore(s => s.current);
@@ -194,13 +194,14 @@ export const SearchScreen = ({
   // Búsqueda con debounce
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!q.trim()) return;
+    const safeQuery = normalizeSearchQuery(q);
+    if (!safeQuery) return;
 
     debounceRef.current = setTimeout(() => {
       setError(null);
       setLoading(true);
       deezerService
-        .searchTracks(q.trim(), 30)
+        .searchTracks(safeQuery, 30)
         .then(setResults)
         .catch(e => setError(e?.message ?? 'Error de búsqueda.'))
         .finally(() => setLoading(false));
@@ -312,7 +313,7 @@ export const SearchScreen = ({
         })
         .catch(() => {});
     },
-    [enqueueExternalDownload, navigation],
+    [navigation],
   );
 
   // Valores derivados — NO son hooks, se calculan en cada render
@@ -346,7 +347,7 @@ export const SearchScreen = ({
         />
         <TextInput
           value={q}
-          onChangeText={setQ}
+          onChangeText={value => setQ(normalizeSearchQuery(value, 0))}
           style={styles.searchBarInput}
           placeholder="Artista, canción, álbum..."
           placeholderTextColor={theme.colors.textMuted}

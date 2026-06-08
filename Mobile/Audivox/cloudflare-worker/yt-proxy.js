@@ -14,6 +14,8 @@
  *   → devuelve audioStreams[] con URLs directas de YouTube CDN
  */
 
+/* global AbortSignal, Response */
+
 const PIPED_INSTANCES = [
   'https://pipedapi.kavin.rocks',
   'https://api.piped.yt',

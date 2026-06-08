@@ -1,3 +1,6 @@
+import { normalizeSearchQuery } from '../security/inputValidation';
+import { assertAllowedRemoteUrl } from '../security/networkPolicy';
+
 // Invidious — frontend open-source de YouTube sin Cloudflare.
 // Se usa para RESOLVER el audio completo de una canción:
 //   Deezer (metadata) + Invidious (stream URL de Google CDN) → SoundPlayer
@@ -54,6 +57,7 @@ const fetchJson = async <T>(url: string): Promise<T | null> => {
   const ctrl = new AbortController();
   const id = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
+    assertAllowedRemoteUrl(url);
     const res = await fetch(url, { headers: HEADERS, signal: ctrl.signal });
     if (!res.ok) return null;
     const json = await res.json();
@@ -106,7 +110,9 @@ export const invidiousService = {
   // Todos los servidores se consultan en paralelo — máximo TIMEOUT_MS de espera.
   // Devuelve null si todos fallan (sin lanzar excepción).
   async resolveAudio(query: string): Promise<ResolvedAudio | null> {
-    const encoded = encodeURIComponent(query);
+    const safeQuery = normalizeSearchQuery(query);
+    if (!safeQuery) return null;
+    const encoded = encodeURIComponent(safeQuery);
 
     // Paso 1: buscar el video en todos los servidores en paralelo
     type SearchHit = { instance: string; videoId: string; title: string; durationSec?: number; thumbnailUrl?: string };
@@ -151,6 +157,7 @@ export const invidiousService = {
     );
 
     if (!streamResult) return null;
+    assertAllowedRemoteUrl(streamResult.audioUrl);
 
     return {
       videoId: searchResult.videoId,

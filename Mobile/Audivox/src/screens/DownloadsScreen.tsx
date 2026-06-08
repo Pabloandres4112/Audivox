@@ -14,6 +14,13 @@ import { WebView } from 'react-native-webview';
 import type { WebViewNavigation } from 'react-native-webview';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { EmptyBlock } from '../components/common/StateBlocks';
+import {
+  assertAllowedRemoteUrl,
+  BLOCKED_HOST_KEYWORDS,
+  isAllowedWebViewRequest,
+  WEBVIEW_CSP,
+} from '../security/networkPolicy';
+import { securityService } from '../security/securityService';
 import { localMediaService, LocalMediaItem } from '../services/localMediaService';
 import {
   ExternalDownload,
@@ -30,20 +37,6 @@ import { styles } from './styles';
 const WEB_DOWNLOADER_URL = 'https://v3.y2mate.nu/es/';
 
 // Dominios bloqueados a nivel de navegación (adultos, ilegales, publicidad agresiva)
-const BLOCKED_DOMAINS = [
-  // Contenido adulto
-  'pornhub', 'xvideos', 'xnxx', 'redtube', 'youporn', 'tube8',
-  'spankbang', 'xhamster', 'chaturbate', 'onlyfans', 'faphouse',
-  'brazzers', 'bangbros', 'realitykings', 'mofos', 'naughtyamerica',
-  // Contenido ilegal
-  'thepiratebay', 'pirateproxy', '1337x.to', 'rarbg', 'kickasstorrents',
-  // Redes de publicidad / malware
-  'popads.net', 'popcash.net', 'propellerads.com', 'adsterra.com',
-  'trafficjunky', 'juicyads', 'exoclick', 'ero-advertising',
-  'plugrush', 'trafficforce', 'contentabc', 'clickadu',
-  'revcontent', 'mgid.com', 'zergnet',
-];
-
 // JS inyectado en el WebView:
 // 1. Bloquea todos los popups/window.open (excepto descarga de audio)
 // 2. Oculta iframes de anuncios y overlays flotantes con CSS
@@ -82,9 +75,13 @@ const WEBVIEW_JS = `
   style.textContent = css;
   document.head.appendChild(style);
 
+  var csp = document.createElement('meta');
+  csp.httpEquiv = 'Content-Security-Policy';
+  csp.content = ${JSON.stringify(WEBVIEW_CSP)};
+  document.head.appendChild(csp);
+
   /* ── 3. Eliminar ads dinámicos con MutationObserver ────────── */
-  var AD_IFRAME_SRCS = ['doubleclick','googlesyndication','adnxs','popads',
-    'propellerads','adsterra','trafficjunky','juicyads','exoclick','ero-advertising'];
+  var AD_IFRAME_SRCS = ${JSON.stringify(BLOCKED_HOST_KEYWORDS)};
   function removeAd(node) {
     if (!node || node.nodeType !== 1) return;
     if (node.tagName === 'IFRAME') {
@@ -314,14 +311,7 @@ const WebDownloaderModal = ({ visible, onClose, onDownloadUrl }: WebDownloaderMo
     }
 
     // Bloquear dominios de contenido adulto / ilegal / publicidad agresiva
-    if (BLOCKED_DOMAINS.some(d => urlLower.includes(d))) return false;
-
-    // Bloquear redireccionamientos fuera de y2mate (popups de anuncios)
-    const isY2Mate = urlLower.includes('y2mate');
-    const isSystem = /^(about:|data:|blob:)/.test(urlLower);
-    if (!isY2Mate && !isSystem) return false;
-
-    return true;
+    return isAllowedWebViewRequest(urlLower);
   }, [onDownloadUrl, onClose]);
 
   return (
@@ -387,8 +377,8 @@ const WebDownloaderModal = ({ visible, onClose, onDownloadUrl }: WebDownloaderMo
           mediaPlaybackRequiresUserAction={false}
           javaScriptEnabled
           domStorageEnabled
-          thirdPartyCookiesEnabled
-          sharedCookiesEnabled
+          thirdPartyCookiesEnabled={false}
+          sharedCookiesEnabled={false}
           allowsFullscreenVideo={false}
         />
       </SafeAreaView>
@@ -445,6 +435,7 @@ const webStyles = {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export const DownloadsScreen = () => {
+  const strictModeEnabled = securityService.isStrictModeEnabled();
   const externalDownloads = useAppStore(s => s.externalDownloads);
   const updateExternalDownload = useAppStore(s => s.updateExternalDownload);
   const addToDownloadHistory = useAppStore(s => s.addToDownloadHistory);
@@ -592,10 +583,19 @@ export const DownloadsScreen = () => {
       format: guessExt, status: 'queued', progress: 0, createdAt: Date.now(),
     };
 
+    try {
+      assertAllowedRemoteUrl(url);
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'URL de descarga bloqueada.');
+      return;
+    }
+
     useAppStore.getState().enqueueExternalDownload(item);
     performDownload(item);
-    setSuccessText('Descarga iniciada desde el navegador web');
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!strictModeEnabled) {
+      setSuccessText('Descarga iniciada desde el navegador web');
+    }
+  }, [strictModeEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const removeItem = (id: string) => {
     activeDownloads.current.delete(id);
@@ -656,7 +656,7 @@ export const DownloadsScreen = () => {
         </Pressable>
 
         {/* Banners */}
-        {successText ? (
+        {!strictModeEnabled && successText ? (
           <View style={styles.successBanner}>
             <Icon name="checkmark-circle-outline" size={14} color={theme.colors.success} />
             <Text style={styles.successBannerText}>{successText}</Text>
@@ -733,11 +733,18 @@ export const DownloadsScreen = () => {
                 <Text style={[styles.sectionAction, { color: theme.colors.danger }]}>Borrar todo</Text>
               </Pressable>
             )}
-            <Pressable onPress={() => setIsHistoryModalOpen(true)}>
-              <Text style={styles.sectionAction}>Ver todo</Text>
-            </Pressable>
+            {!strictModeEnabled ? (
+              <Pressable onPress={() => setIsHistoryModalOpen(true)}>
+                <Text style={styles.sectionAction}>Ver todo</Text>
+              </Pressable>
+            ) : null}
           </View>
         </View>
+        {strictModeEnabled ? (
+          <Text style={styles.pageSub}>
+            Modo estricto activo: se silencian popups y avisos no esenciales.
+          </Text>
+        ) : null}
 
         {recentHistory.length === 0 ? (
           <EmptyBlock title="Sin historial" subtitle="Las descargas completadas aparecerán aquí." icon="time-outline" />
@@ -764,7 +771,7 @@ export const DownloadsScreen = () => {
       </ScrollView>
 
       {/* ── Modal historial ── */}
-      <Modal visible={isHistoryModalOpen} animationType="slide" transparent onRequestClose={() => setIsHistoryModalOpen(false)}>
+      <Modal visible={!strictModeEnabled && isHistoryModalOpen} animationType="slide" transparent onRequestClose={() => setIsHistoryModalOpen(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalTopBar}>

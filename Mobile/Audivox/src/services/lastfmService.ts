@@ -1,9 +1,11 @@
+import { normalizeNetworkLimit, normalizeSearchQuery } from '../security/inputValidation';
+import { runtimeConfig } from '../security/runtimeConfig';
+
 // Last.fm API — metadatos, recomendaciones, biografías, tags de género.
 // Requiere API key gratuita: https://www.last.fm/api/account/create (2 minutos)
 // NO provee audio — solo información editorial.
 
-// ← Pega aquí tu API key de Last.fm después de registrarte
-const LASTFM_API_KEY = '';
+const LASTFM_API_KEY = runtimeConfig.lastfmApiKey;
 
 const BASE = 'https://ws.audioscrobbler.com/2.0';
 
@@ -42,17 +44,25 @@ export const lastfmService = {
 
   // Busca pistas (solo metadatos, sin audio)
   async searchTracks(query: string, limit = 20): Promise<LastFmTrack[]> {
+    const safeQuery = normalizeSearchQuery(query);
+    if (!safeQuery) return [];
     const data = await lfFetch<{
       results?: { trackmatches?: { track?: LastFmTrack[] } };
-    }>({ method: 'track.search', track: query, limit: String(limit) });
+    }>({
+      method: 'track.search',
+      track: safeQuery,
+      limit: String(normalizeNetworkLimit(limit, 20)),
+    });
     return data?.results?.trackmatches?.track ?? [];
   },
 
   // Info detallada de artista incluyendo biografía y tags de género
   async getArtistInfo(artist: string): Promise<LastFmArtistInfo | null> {
+    const safeArtist = normalizeSearchQuery(artist, 1);
+    if (!safeArtist) return null;
     const data = await lfFetch<{ artist?: LastFmArtistInfo }>({
       method: 'artist.getInfo',
-      artist,
+      artist: safeArtist,
       autocorrect: '1',
     });
     return data?.artist ?? null;
@@ -60,11 +70,14 @@ export const lastfmService = {
 
   // Pistas similares a la que se está reproduciendo (para "siguiente recomendado")
   async getSimilarTracks(artist: string, track: string, limit = 10): Promise<LastFmTrack[]> {
+    const safeArtist = normalizeSearchQuery(artist, 1);
+    const safeTrack = normalizeSearchQuery(track, 1);
+    if (!safeArtist || !safeTrack) return [];
     const data = await lfFetch<{ similartracks?: { track?: LastFmTrack[] } }>({
       method: 'track.getSimilar',
-      artist,
-      track,
-      limit: String(limit),
+      artist: safeArtist,
+      track: safeTrack,
+      limit: String(normalizeNetworkLimit(limit, 10)),
       autocorrect: '1',
     });
     return data?.similartracks?.track ?? [];
@@ -74,7 +87,7 @@ export const lastfmService = {
   async getTopTracks(limit = 25): Promise<LastFmTrack[]> {
     const data = await lfFetch<{ tracks?: { track?: LastFmTrack[] } }>({
       method: 'chart.getTopTracks',
-      limit: String(limit),
+      limit: String(normalizeNetworkLimit(limit, 25)),
     });
     return data?.tracks?.track ?? [];
   },
