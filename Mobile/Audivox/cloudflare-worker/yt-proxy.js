@@ -32,6 +32,15 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type, Accept',
 };
 
+function createTimeoutSignal(timeoutMs) {
+  if (self.AbortSignal?.timeout) {
+    return self.AbortSignal.timeout(timeoutMs);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), timeoutMs);
+  return controller.signal;
+}
+
 export default {
   async fetch(request) {
     // CORS preflight
@@ -53,7 +62,7 @@ export default {
       PIPED_INSTANCES.map(async (inst) => {
         const r = await fetch(`${inst}/streams/${videoId}`, {
           headers: { Accept: 'application/json', 'User-Agent': 'Audivox/1.0' },
-          signal: self.AbortSignal?.timeout?.(8000),
+          signal: createTimeoutSignal(8000),
         });
         if (!r.ok) throw new Error(`${inst} HTTP ${r.status}`);
         const data = await r.json();
