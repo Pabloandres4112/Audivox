@@ -14,7 +14,7 @@
  *   → devuelve audioStreams[] con URLs directas de YouTube CDN
  */
 
-/* global AbortSignal, Response */
+/* eslint-env serviceworker */
 
 const PIPED_INSTANCES = [
   'https://pipedapi.kavin.rocks',
@@ -53,7 +53,9 @@ export default {
       PIPED_INSTANCES.map(async (inst) => {
         const r = await fetch(`${inst}/streams/${videoId}`, {
           headers: { Accept: 'application/json', 'User-Agent': 'Audivox/1.0' },
-          signal: AbortSignal.timeout(8000),
+          signal: self.AbortSignal?.timeout
+            ? self.AbortSignal.timeout(8000)
+            : undefined,
         });
         if (!r.ok) throw new Error(`${inst} HTTP ${r.status}`);
         const data = await r.json();

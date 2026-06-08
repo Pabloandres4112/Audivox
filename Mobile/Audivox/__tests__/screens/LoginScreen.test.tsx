@@ -22,9 +22,7 @@ describe('LoginScreen', () => {
     });
 
     const inputs = tree!.root.findAllByType(TextInput);
-    const button = tree!.root.findAll(
-      node => typeof node.props?.onPress === 'function',
-    )[0];
+    const button = tree!.root.findByProps({ testID: 'login-continue-button' });
 
     renderer.act(() => {
       inputs[0].props.onChangeText('Pablo');
@@ -44,9 +42,7 @@ describe('LoginScreen', () => {
     });
 
     const inputs = tree!.root.findAllByType(TextInput);
-    const button = tree!.root.findAll(
-      node => typeof node.props?.onPress === 'function',
-    )[0];
+    const button = tree!.root.findByProps({ testID: 'login-continue-button' });
 
     renderer.act(() => {
       inputs[0].props.onChangeText(' Pablo ');

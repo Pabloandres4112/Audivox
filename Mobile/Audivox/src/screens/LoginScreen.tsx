@@ -50,10 +50,11 @@ export const LoginScreen = () => {
             <Text style={styles.errorBannerText}>{error}</Text>
           </View>
         ) : null}
-        <Pressable style={styles.primaryButton} onPress={handleContinue}>
+        <Pressable testID="login-continue-button" style={styles.primaryButton} onPress={handleContinue}>
           <Text style={styles.primaryButtonText}>Continue</Text>
         </Pressable>
         <Pressable
+          testID="login-guest-button"
           style={styles.secondaryButton}
           onPress={() => login({ name: 'Guest Listener', isGuest: true })}
         >
