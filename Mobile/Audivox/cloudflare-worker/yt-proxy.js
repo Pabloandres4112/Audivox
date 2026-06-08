@@ -14,6 +14,8 @@
  *   → devuelve audioStreams[] con URLs directas de YouTube CDN
  */
 
+/* eslint-env serviceworker */
+
 const PIPED_INSTANCES = [
   'https://pipedapi.kavin.rocks',
   'https://api.piped.yt',
@@ -29,6 +31,15 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Accept',
 };
+
+function createTimeoutSignal(timeoutMs) {
+  if (self.AbortSignal?.timeout) {
+    return self.AbortSignal.timeout(timeoutMs);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), timeoutMs);
+  return controller.signal;
+}
 
 export default {
   async fetch(request) {
@@ -51,7 +62,7 @@ export default {
       PIPED_INSTANCES.map(async (inst) => {
         const r = await fetch(`${inst}/streams/${videoId}`, {
           headers: { Accept: 'application/json', 'User-Agent': 'Audivox/1.0' },
-          signal: AbortSignal.timeout(8000),
+          signal: createTimeoutSignal(8000),
         });
         if (!r.ok) throw new Error(`${inst} HTTP ${r.status}`);
         const data = await r.json();

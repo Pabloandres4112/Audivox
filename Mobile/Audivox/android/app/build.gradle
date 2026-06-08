@@ -59,6 +59,12 @@ react {
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
 def enableProguardInReleaseBuilds = false
+def envValue = { String name, String fallback = "" ->
+    return (System.getenv(name) ?: (project.findProperty(name) ?: fallback)).toString()
+}
+def escapeBuildConfig = { String value ->
+    return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+}
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -85,6 +91,10 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        buildConfigField "String", "LASTFM_API_KEY", escapeBuildConfig(envValue("AUDIVOX_LASTFM_API_KEY"))
+        buildConfigField "String", "YOUTUBE_CONVERTER_ENDPOINT", escapeBuildConfig(envValue("AUDIVOX_YOUTUBE_CONVERTER_ENDPOINT"))
+        buildConfigField "String", "AUDIVOX_WORKER_URL", escapeBuildConfig(envValue("AUDIVOX_WORKER_URL"))
+        buildConfigField "boolean", "STRICT_MODE_ENABLED", (envValue("AUDIVOX_STRICT_MODE_ENABLED", "true") == "true").toString()
         ndk {
             abiFilters "arm64-v8a"
         }

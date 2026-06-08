@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { isValidEmail, sanitizeEmailInput, sanitizeNameInput } from '../security/inputValidation';
 import { useAppStore } from '../store/useAppStore';
 import { theme } from '../theme';
 import { styles } from './styles';
@@ -8,6 +9,18 @@ export const LoginScreen = () => {
   const login = useAppStore(s => s.login);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const handleContinue = () => {
+    const safeName = sanitizeNameInput(name);
+    const safeEmail = sanitizeEmailInput(email);
+    if (!isValidEmail(safeEmail)) {
+      setError('Ingresa un correo válido o deja el campo vacío.');
+      return;
+    }
+    setError(null);
+    login({ name: safeName, email: safeEmail || undefined, isGuest: false });
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.fullScreen}>
@@ -21,25 +34,27 @@ export const LoginScreen = () => {
           placeholder="Name"
           placeholderTextColor={theme.colors.textMuted}
           value={name}
-          onChangeText={setName}
+          onChangeText={value => setName(sanitizeNameInput(value, ''))}
         />
         <TextInput
           style={styles.input}
           placeholder="Email"
           placeholderTextColor={theme.colors.textMuted}
           value={email}
-          onChangeText={setEmail}
+          onChangeText={value => setEmail(sanitizeEmailInput(value))}
           autoCapitalize="none"
+          keyboardType="email-address"
         />
-        <Pressable
-          style={styles.primaryButton}
-          onPress={() =>
-            login({ name: name || 'Listener', email, isGuest: false })
-          }
-        >
+        {error ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>{error}</Text>
+          </View>
+        ) : null}
+        <Pressable testID="login-continue-button" style={styles.primaryButton} onPress={handleContinue}>
           <Text style={styles.primaryButtonText}>Continue</Text>
         </Pressable>
         <Pressable
+          testID="login-guest-button"
           style={styles.secondaryButton}
           onPress={() => login({ name: 'Guest Listener', isGuest: true })}
         >

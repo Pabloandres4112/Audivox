@@ -1,5 +1,7 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import RNFS, { ReadDirItem } from 'react-native-fs';
+import { assertAllowedRemoteUrl } from '../security/networkPolicy';
+import { runtimeConfig } from '../security/runtimeConfig';
 import { ExternalDownloadFormat } from '../store/useAppStore';
 
 const AUDIO_EXT = ['.mp3', '.m4a', '.wav', '.aac', '.flac', '.ogg', '.opus', '.webm'];
@@ -14,13 +16,8 @@ const INVALID_CONTENT_TYPE_RE = /text\/html|application\/json|text\/plain|applic
 
 const YOUTUBE_URL_RE = /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[a-zA-Z0-9_-]{6,}/i;
 
-// Configura aqui tu endpoint propio de conversion. Ejemplo:
-// https://tu-backend.com/api/youtube/convert
-const YOUTUBE_CONVERTER_ENDPOINT = '';
-
-// Cloudflare Worker que proxea Piped API — despliega cloudflare-worker/yt-proxy.js
-// y pega aquí la URL (ej: https://audivox-yt.TU-USUARIO.workers.dev)
-const AUDIVOX_WORKER_URL = '';
+const YOUTUBE_CONVERTER_ENDPOINT = runtimeConfig.youtubeConverterEndpoint;
+const AUDIVOX_WORKER_URL = runtimeConfig.audivoxWorkerUrl;
 
 const hasExt = (name: string, exts: string[]) =>
   exts.some(ext => name.toLowerCase().endsWith(ext));
@@ -45,8 +42,8 @@ const normalizeAudioExtension = (raw?: string | null) => {
 
 const ensureHttpUrl = (value: string) => {
   try {
-    const u = new URL(value);
-    return u.protocol === 'http:' || u.protocol === 'https:';
+    assertAllowedRemoteUrl(value);
+    return true;
   } catch {
     return false;
   }
@@ -319,6 +316,7 @@ export const localMediaService = {
       const coverPath = `${dir}/${baseName}.jpg`;
       try {
         if (!(await RNFS.exists(coverPath))) {
+          assertAllowedRemoteUrl(thumbnailUrl);
           await RNFS.downloadFile({ fromUrl: thumbnailUrl, toFile: coverPath }).promise;
         }
       } catch {}
@@ -436,6 +434,7 @@ export const localMediaService = {
       const t0 = Date.now();
       try {
         console.log(`${TAG} → ${label}`);
+        assertAllowedRemoteUrl(url);
         const res = await fetch(url, { headers: HDRS, signal: ctrl.signal });
         if (!res.ok) {
           console.warn(`${TAG} ✗ ${label} HTTP ${res.status} (${Date.now() - t0}ms)`);
@@ -474,6 +473,7 @@ export const localMediaService = {
       const t0 = Date.now();
       try {
         console.log(`${TAG} → YouTube/${name}`);
+        assertAllowedRemoteUrl(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}&prettyPrint=false`);
         const res = await fetch(
           `https://www.youtube.com/youtubei/v1/player?key=${apiKey}&prettyPrint=false`,
           {
@@ -560,6 +560,9 @@ export const localMediaService = {
     // ── Título desde YouTube oEmbed (oficial, muy confiable) ──────────────
     const getTitle = async (): Promise<string> => {
       try {
+        assertAllowedRemoteUrl(
+          `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
+        );
         const res = await fetch(
           `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`,
           { headers: { Accept: 'application/json' } },
@@ -583,6 +586,7 @@ export const localMediaService = {
       const t0 = Date.now();
       try {
         console.log(`${TAG} → ${label}`);
+        assertAllowedRemoteUrl(endpoint);
         const res = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -722,6 +726,7 @@ export const localMediaService = {
       );
     }
 
+    assertAllowedRemoteUrl(YOUTUBE_CONVERTER_ENDPOINT);
     const response = await fetch(YOUTUBE_CONVERTER_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

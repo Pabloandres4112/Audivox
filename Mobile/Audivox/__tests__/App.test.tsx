@@ -8,6 +8,9 @@ jest.mock('../src/navigation/RootNavigator', () => ({
 jest.mock('../src/hooks/usePlaybackTick', () => ({
   usePlaybackTick: jest.fn(),
 }));
+jest.mock('../src/hooks/useConnectivitySync', () => ({
+  useConnectivitySync: jest.fn(),
+}));
 
 describe('App', () => {
   it('renders app shell', () => {

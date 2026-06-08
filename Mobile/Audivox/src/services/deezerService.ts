@@ -1,3 +1,6 @@
+import { normalizeNetworkLimit, normalizeSearchQuery } from '../security/inputValidation';
+import { assertAllowedRemoteUrl } from '../security/networkPolicy';
+
 // Deezer API pública — sin API key, sin registro.
 // Docs: https://developers.deezer.com/api
 // Uso personal y desarrollo. No publicar app comercial sin revisar ToS.
@@ -39,6 +42,7 @@ export const DEEZER_GENRES: DeezerGenreEntry[] = [
 
 const safeFetch = async <T>(url: string): Promise<T | null> => {
   try {
+    assertAllowedRemoteUrl(url);
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) return null;
     const json = await res.json();
@@ -55,8 +59,11 @@ const validTrack = (t: DeezerTrack) =>
 export const deezerService = {
   // Búsqueda de pistas — devuelve metadata rica + URL de preview de 30s
   async searchTracks(query: string, limit = 25): Promise<DeezerTrack[]> {
+    const safeQuery = normalizeSearchQuery(query);
+    if (!safeQuery) return [];
+    const safeLimit = normalizeNetworkLimit(limit, 25);
     const data = await safeFetch<{ data?: DeezerTrack[] }>(
-      `${BASE}/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+      `${BASE}/search?q=${encodeURIComponent(safeQuery)}&limit=${safeLimit}`,
     );
     if (!data?.data) throw new Error('No se obtuvieron resultados de Deezer.');
     return data.data.filter(validTrack);
@@ -64,8 +71,9 @@ export const deezerService = {
 
   // Chart global o por género (genreId = 0 → top global)
   async getChart(genreId = 0, limit = 25): Promise<DeezerTrack[]> {
+    const safeLimit = normalizeNetworkLimit(limit, 25);
     const data = await safeFetch<{ data?: DeezerTrack[] }>(
-      `${BASE}/chart/${genreId}/tracks?limit=${limit}`,
+      `${BASE}/chart/${genreId}/tracks?limit=${safeLimit}`,
     );
     return (data?.data ?? []).filter(validTrack);
   },

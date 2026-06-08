@@ -1,4 +1,6 @@
 import { ExternalDownloadFormat } from '../store/useAppStore';
+import { normalizeNetworkLimit, normalizeSearchQuery } from '../security/inputValidation';
+import { assertAllowedRemoteUrl } from '../security/networkPolicy';
 
 const AUDIUS_API_BASE = 'https://api.audius.co/v1';
 const AUDIUS_APP_NAME = 'Audivox';
@@ -81,41 +83,50 @@ const isValidTrack = (t: RawTrack) =>
 export const audiusService = {
   // Buscar pistas por nombre o artista
   async searchTracks(query: string, limit = 20): Promise<AudiusTrackResult[]> {
-    const cleanQuery = query.trim();
+    const cleanQuery = normalizeSearchQuery(query);
     if (!cleanQuery) return [];
+    const safeLimit = normalizeNetworkLimit(limit, 20);
 
     const params = new URLSearchParams({
       query: cleanQuery,
-      limit: String(limit),
+      limit: String(safeLimit),
       app_name: AUDIUS_APP_NAME,
     });
 
-    const res = await fetch(`${AUDIUS_API_BASE}/tracks/search?${params.toString()}`);
+    const endpoint = `${AUDIUS_API_BASE}/tracks/search?${params.toString()}`;
+    assertAllowedRemoteUrl(endpoint);
+    const res = await fetch(endpoint);
     if (!res.ok) throw new Error(`Audius no respondió (HTTP ${res.status}).`);
 
     const payload = (await res.json()) as AudiusListResponse;
     return (payload.data ?? [])
       .filter(isValidTrack)
-      .slice(0, limit)
+      .slice(0, safeLimit)
       .map(mapTrack)
       .filter(t => t.id && t.streamUrl);
   },
 
   // Top tendencias globales (o por género)
   async getTrending(limit = 15, genre?: string): Promise<AudiusTrackResult[]> {
+    const safeLimit = normalizeNetworkLimit(limit, 15);
     const params = new URLSearchParams({
-      limit: String(limit),
+      limit: String(safeLimit),
       app_name: AUDIUS_APP_NAME,
     });
-    if (genre) params.set('genre', genre);
+    if (genre) {
+      const safeGenre = normalizeSearchQuery(genre, 1);
+      if (safeGenre) params.set('genre', safeGenre);
+    }
 
-    const res = await fetch(`${AUDIUS_API_BASE}/tracks/trending?${params.toString()}`);
+    const endpoint = `${AUDIUS_API_BASE}/tracks/trending?${params.toString()}`;
+    assertAllowedRemoteUrl(endpoint);
+    const res = await fetch(endpoint);
     if (!res.ok) throw new Error(`Audius trending no disponible (HTTP ${res.status}).`);
 
     const payload = (await res.json()) as AudiusListResponse;
     return (payload.data ?? [])
       .filter(isValidTrack)
-      .slice(0, limit)
+      .slice(0, safeLimit)
       .map(mapTrack)
       .filter(t => t.id && t.streamUrl);
   },
