@@ -29,9 +29,83 @@ import { styles } from './styles';
 
 const WEB_DOWNLOADER_URL = 'https://v3.y2mate.nu/es/';
 
-// Inyectado en el WebView para interceptar clics en enlaces de descarga
-const INTERCEPT_DOWNLOADS_JS = `
+// Dominios bloqueados a nivel de navegación (adultos, ilegales, publicidad agresiva)
+const BLOCKED_DOMAINS = [
+  // Contenido adulto
+  'pornhub', 'xvideos', 'xnxx', 'redtube', 'youporn', 'tube8',
+  'spankbang', 'xhamster', 'chaturbate', 'onlyfans', 'faphouse',
+  'brazzers', 'bangbros', 'realitykings', 'mofos', 'naughtyamerica',
+  // Contenido ilegal
+  'thepiratebay', 'pirateproxy', '1337x.to', 'rarbg', 'kickasstorrents',
+  // Redes de publicidad / malware
+  'popads.net', 'popcash.net', 'propellerads.com', 'adsterra.com',
+  'trafficjunky', 'juicyads', 'exoclick', 'ero-advertising',
+  'plugrush', 'trafficforce', 'contentabc', 'clickadu',
+  'revcontent', 'mgid.com', 'zergnet',
+];
+
+// JS inyectado en el WebView:
+// 1. Bloquea todos los popups/window.open (excepto descarga de audio)
+// 2. Oculta iframes de anuncios y overlays flotantes con CSS
+// 3. Elimina dinámicamente elementos de ad que se agregan al DOM
+// 4. Intercepta clics en enlaces de descarga y los manda a React Native
+const WEBVIEW_JS = `
 (function() {
+  /* ── 1. Bloquear popups ─────────────────────────────────────── */
+  window.open = function(url) {
+    if (!url) return null;
+    if (/\\.(mp3|m4a|webm|ogg|opus|aac|wav)(\\?|$)/i.test(url) || /\\/dl\\//i.test(url)) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DOWNLOAD', url: url }));
+    }
+    return null; // Bloquea TODO window.open que no sea descarga
+  };
+  window.alert   = function() {};
+  window.confirm = function() { return false; };
+  window.prompt  = function() { return null; };
+
+  /* ── 2. CSS anti-anuncios ───────────────────────────────────── */
+  var css = [
+    /* Iframes externos (publicidad) */
+    'iframe:not([src*="y2mate"]) { display:none!important; }',
+    /* Clases de anuncios comunes */
+    '.adsbox,.adsbygoogle,.ads-wrapper,.ad-container,.ad-banner,.banner-ad,.ad-slot { display:none!important; }',
+    /* FuckAdBlock y similares */
+    '#fc-shadow,#fc-dialog,.fc-dialog-container,[class*="fc-ab"],[id*="fc-ab"] { display:none!important; }',
+    /* Overlays flotantes (pop-under, popads) */
+    '#pop_up_box,#pop_up_overlay,.popup-wrapper,.popup-overlay,.popover-ad { display:none!important; }',
+    /* Sticky/floating ads */
+    '[class*="sticky-ad"],[class*="sticky_ad"],[id*="sticky-ad"],[class*="float-ad"] { display:none!important; }',
+    /* Div posicionado fijo con z-index enorme = overlay de publicidad */
+    'div[style*="position:fixed"][style*="z-index:99"],div[style*="position: fixed"][style*="z-index: 99"] { display:none!important; }',
+  ].join('');
+  var style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+
+  /* ── 3. Eliminar ads dinámicos con MutationObserver ────────── */
+  var AD_IFRAME_SRCS = ['doubleclick','googlesyndication','adnxs','popads',
+    'propellerads','adsterra','trafficjunky','juicyads','exoclick','ero-advertising'];
+  function removeAd(node) {
+    if (!node || node.nodeType !== 1) return;
+    if (node.tagName === 'IFRAME') {
+      var src = (node.src || '').toLowerCase();
+      if (AD_IFRAME_SRCS.some(function(d){ return src.indexOf(d) > -1; })) {
+        node.remove();
+        return;
+      }
+    }
+    var st = node.style;
+    if (st && st.position === 'fixed' && parseInt(st.zIndex||'0') > 9000) {
+      node.remove();
+    }
+  }
+  new MutationObserver(function(ms) {
+    ms.forEach(function(m) {
+      m.addedNodes.forEach(removeAd);
+    });
+  }).observe(document.body, { childList: true, subtree: true });
+
+  /* ── 4. Interceptar clics en enlaces de descarga ────────────── */
   document.addEventListener('click', function(e) {
     var el = e.target;
     while (el && el.tagName !== 'A') el = el.parentElement;
@@ -46,14 +120,7 @@ const INTERCEPT_DOWNLOADS_JS = `
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DOWNLOAD', url: href }));
     }
   }, true);
-  var _open = window.open;
-  window.open = function(url) {
-    if (url && (/\\.(mp3|m4a|webm|ogg)(\\?|$)/i.test(url) || /\\/dl\\//i.test(url))) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DOWNLOAD', url: url }));
-      return null;
-    }
-    return _open.apply(this, arguments);
-  };
+
   true;
 })();
 `;
@@ -235,13 +302,25 @@ const WebDownloaderModal = ({ visible, onClose, onDownloadUrl }: WebDownloaderMo
 
   const handleShouldStartLoad = useCallback((request: WebViewNavigation) => {
     const { url } = request;
-    const isAudio = /\.(mp3|m4a|webm|ogg|opus|aac|wav)(\?|$)/i.test(url);
-    const isDl = /dl\.y2mate|ytmate.*download|\/dl\/[a-z0-9]/i.test(url);
+    const urlLower = url.toLowerCase();
+
+    // Interceptar descarga de audio → React Native la maneja
+    const isAudio = /\.(mp3|m4a|webm|ogg|opus|aac|wav)(\?|$)/i.test(urlLower);
+    const isDl = /dl\.y2mate|ytmate.*download|\/dl\/[a-z0-9]/i.test(urlLower);
     if (isAudio || isDl) {
       onDownloadUrl(url);
       onClose();
       return false;
     }
+
+    // Bloquear dominios de contenido adulto / ilegal / publicidad agresiva
+    if (BLOCKED_DOMAINS.some(d => urlLower.includes(d))) return false;
+
+    // Bloquear redireccionamientos fuera de y2mate (popups de anuncios)
+    const isY2Mate = urlLower.includes('y2mate');
+    const isSystem = /^(about:|data:|blob:)/.test(urlLower);
+    if (!isY2Mate && !isSystem) return false;
+
     return true;
   }, [onDownloadUrl, onClose]);
 
@@ -288,12 +367,12 @@ const WebDownloaderModal = ({ visible, onClose, onDownloadUrl }: WebDownloaderMo
           </Text>
         </View>
 
-        {/* WebView */}
+        {/* WebView con bloqueo de anuncios y contenido adulto */}
         <WebView
           ref={wvRef}
           source={{ uri: WEB_DOWNLOADER_URL }}
           style={{ flex: 1 }}
-          injectedJavaScript={INTERCEPT_DOWNLOADS_JS}
+          injectedJavaScript={WEBVIEW_JS}
           onMessage={handleMessage}
           onShouldStartLoadWithRequest={handleShouldStartLoad}
           onNavigationStateChange={nav => {
@@ -303,6 +382,7 @@ const WebDownloaderModal = ({ visible, onClose, onDownloadUrl }: WebDownloaderMo
           }}
           onLoadStart={() => setLoading(true)}
           onLoadEnd={() => setLoading(false)}
+          setSupportMultipleWindows={false}
           allowsInlineMediaPlayback
           mediaPlaybackRequiresUserAction={false}
           javaScriptEnabled
