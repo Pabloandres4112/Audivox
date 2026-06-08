@@ -1,6 +1,6 @@
 import React from 'react';
 import renderer from 'react-test-renderer';
-import { Pressable, TextInput } from 'react-native';
+import { TextInput } from 'react-native';
 import { LoginScreen } from '../../src/screens/LoginScreen';
 
 const mockLogin = jest.fn();

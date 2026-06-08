@@ -42,7 +42,7 @@ Para bloquear merges, configura la protección de rama de GitHub y marca como ob
 
 ## Ejecución local
 
-Desde `/tmp/workspace/Pabloandres4112/Audivox/Mobile/Audivox`:
+Desde `Mobile/Audivox`:
 
 ```bash
 npm ci

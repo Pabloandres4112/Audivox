@@ -84,7 +84,7 @@ export const assertAllowedRemoteUrl = (value: string) => {
     throw new Error('La URL remota debe usar HTTPS.');
   }
   if (isBlockedHostname(parsed.hostname)) {
-    throw new Error('La URL remota pertenece a un dominio bloqueado por la politica de seguridad.');
+    throw new Error('La URL remota pertenece a un dominio bloqueado por la política de seguridad.');
   }
   return parsed;
 };
