@@ -53,9 +53,7 @@ export default {
       PIPED_INSTANCES.map(async (inst) => {
         const r = await fetch(`${inst}/streams/${videoId}`, {
           headers: { Accept: 'application/json', 'User-Agent': 'Audivox/1.0' },
-          signal: self.AbortSignal?.timeout
-            ? self.AbortSignal.timeout(8000)
-            : undefined,
+          signal: self.AbortSignal?.timeout?.(8000),
         });
         if (!r.ok) throw new Error(`${inst} HTTP ${r.status}`);
         const data = await r.json();

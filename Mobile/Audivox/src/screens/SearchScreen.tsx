@@ -21,7 +21,7 @@ import {
 import { usePlayerStore } from '../store/usePlayerStore';
 import { theme } from '../theme';
 import { MainTabParamList } from '../navigation/types';
-import { normalizeSearchQuery } from '../security/inputValidation';
+import { normalizeSearchQuery, sanitizeDisplayText } from '../security/inputValidation';
 import { styles } from './styles';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -347,7 +347,7 @@ export const SearchScreen = ({
         />
         <TextInput
           value={q}
-          onChangeText={value => setQ(normalizeSearchQuery(value, 0))}
+          onChangeText={value => setQ(sanitizeDisplayText(value, 80))}
           style={styles.searchBarInput}
           placeholder="Artista, canción, álbum..."
           placeholderTextColor={theme.colors.textMuted}

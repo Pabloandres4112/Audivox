@@ -35,6 +35,8 @@ import { styles } from './styles';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const WEB_DOWNLOADER_URL = 'https://v3.y2mate.nu/es/';
+const WEBVIEW_CSP_LITERAL = JSON.stringify(WEBVIEW_CSP);
+const BLOCKED_HOST_KEYWORDS_LITERAL = JSON.stringify(BLOCKED_HOST_KEYWORDS);
 
 // Dominios bloqueados a nivel de navegación (adultos, ilegales, publicidad agresiva)
 // JS inyectado en el WebView:
@@ -77,11 +79,11 @@ const WEBVIEW_JS = `
 
   var csp = document.createElement('meta');
   csp.httpEquiv = 'Content-Security-Policy';
-  csp.content = ${JSON.stringify(WEBVIEW_CSP)};
+  csp.content = ${WEBVIEW_CSP_LITERAL};
   document.head.appendChild(csp);
 
   /* ── 3. Eliminar ads dinámicos con MutationObserver ────────── */
-  var AD_IFRAME_SRCS = ${JSON.stringify(BLOCKED_HOST_KEYWORDS)};
+  var AD_IFRAME_SRCS = ${BLOCKED_HOST_KEYWORDS_LITERAL};
   function removeAd(node) {
     if (!node || node.nodeType !== 1) return;
     if (node.tagName === 'IFRAME') {
